@@ -1,0 +1,146 @@
+# =============================================================================
+# Enterprise Identity Platform — Pre-commit Configuration
+# =============================================================================
+# Install: pre-commit install && pre-commit install --hook-type commit-msg
+# Run:     pre-commit run --all-files
+# Update:  pre-commit autoupdate
+# =============================================================================
+
+default_language_version:
+  python: python3
+  node: "20"
+
+default_stages: [commit]
+
+fail_fast: false
+
+repos:
+  # ─── General ──────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: no-commit-to-branch
+        args: [--branch=main, --branch=master, --branch=production]
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+
+  # ─── Secrets Detection ────────────────────────────────────────────────────
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: package-lock.json|.env.example
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # ─── Shell Scripts ────────────────────────────────────────────────────────
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
+        files: \.(sh|bash|zsh)$
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.8.0-1
+    hooks:
+      - id: shfmt
+        args: [-i, "2", -ci]
+
+  # ─── YAML ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint.yml]
+
+  # ─── Go ───────────────────────────────────────────────────────────────────
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        files: cli/.*\.go$
+      - id: go-vet
+        files: cli/.*\.go$
+      - id: go-unit-tests
+        files: cli/.*\.go$
+        args: [-timeout=30s]
+
+  # ─── TypeScript / JavaScript ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.9.0
+    hooks:
+      - id: eslint
+        files: \.(ts|tsx|js|jsx)$
+        exclude: (node_modules|dist|.next|coverage)/
+        additional_dependencies:
+          - eslint@9.9.0
+          - "@typescript-eslint/eslint-plugin@8.0.0"
+          - "@typescript-eslint/parser@8.0.0"
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0
+    hooks:
+      - id: prettier
+        files: \.(ts|tsx|js|jsx|json|css|scss|md|yaml|yml)$
+        exclude: (node_modules|dist|.next|coverage|package-lock\.json)/
+
+  # ─── Terraform ────────────────────────────────────────────────────────────
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.92.1
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_tflint
+        args: [--args=--recursive]
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+
+  # ─── Helm ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/gruntwork-io/pre-commit
+    rev: v0.1.23
+    hooks:
+      - id: helmlint
+
+  # ─── Dockerfile ───────────────────────────────────────────────────────────
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.1-beta
+    hooks:
+      - id: hadolint-docker
+        args: [--ignore, DL3008, --ignore, DL3009]
+
+  # ─── Commit Message ───────────────────────────────────────────────────────
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.29.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  # ─── Markdown ─────────────────────────────────────────────────────────────
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint
+        args: [--config, .markdownlint.yml]

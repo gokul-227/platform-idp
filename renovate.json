@@ -1,0 +1,122 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "security:openssf-scorecard",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":enableVulnerabilityAlertsWithLabel",
+    "group:allNonMajor"
+  ],
+  "labels": ["dependencies", "renovate"],
+  "reviewers": ["team:platform-team"],
+  "assignees": ["team:platform-team"],
+  "schedule": ["before 9am on Monday"],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 4,
+  "minimumReleaseAge": "3 days",
+  "ignoreTests": false,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "priority:high"],
+    "schedule": ["at any time"],
+    "prCreation": "immediate"
+  },
+  "packageRules": [
+    {
+      "description": "Group Ory component updates",
+      "matchPackageNames": ["oryd/kratos", "oryd/hydra", "oryd/keto", "oryd/oathkeeper"],
+      "groupName": "Ory ecosystem",
+      "labels": ["ory", "dependencies"],
+      "reviewers": ["team:platform-team"]
+    },
+    {
+      "description": "Automerge patch updates for non-critical deps",
+      "matchUpdateTypes": ["patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "PostgreSQL major version — require manual review",
+      "matchPackageNames": ["postgres", "bitnami/postgresql"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["database", "breaking-change"],
+      "automerge": false,
+      "reviewers": ["team:platform-team", "team:dba"]
+    },
+    {
+      "description": "Security-sensitive packages — immediate PR",
+      "matchPackageNames": ["jsonwebtoken", "jose", "passport", "bcrypt", "argon2"],
+      "labels": ["security"],
+      "schedule": ["at any time"],
+      "prCreation": "immediate"
+    },
+    {
+      "description": "Node.js major versions",
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["runtime", "breaking-change"],
+      "automerge": false
+    },
+    {
+      "description": "Docker base images",
+      "matchManagers": ["dockerfile"],
+      "labels": ["docker"],
+      "groupName": "Docker base images"
+    },
+    {
+      "description": "Terraform providers",
+      "matchManagers": ["terraform"],
+      "labels": ["terraform", "infrastructure"],
+      "groupName": "Terraform providers"
+    },
+    {
+      "description": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "labels": ["ci/cd"],
+      "groupName": "GitHub Actions",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Helm chart dependencies",
+      "matchManagers": ["helmv3"],
+      "labels": ["helm", "infrastructure"],
+      "groupName": "Helm charts"
+    },
+    {
+      "description": "Go dependencies",
+      "matchManagers": ["gomod"],
+      "labels": ["go"],
+      "groupName": "Go dependencies"
+    }
+  ],
+  "regexManagers": [
+    {
+      "description": "Update Ory image versions in docker-compose files",
+      "fileMatch": ["docker/compose/.*\\.yml$"],
+      "matchStrings": [
+        "image: oryd/(?<depName>[a-z]+):v(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://hub.docker.com"
+    },
+    {
+      "description": "Update tool versions in scripts",
+      "fileMatch": ["automation/health/check-tools.sh"],
+      "matchStrings": [
+        "REQUIRED_(?<depName>[A-Z_]+)_VERSION=\"(?<currentValue>[\\d.]+)\""
+      ],
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/.terraform/**",
+    "**/dist/**",
+    "**/.next/**"
+  ]
+}

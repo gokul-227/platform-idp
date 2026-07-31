@@ -1,0 +1,12 @@
+client_id: sample-app
+client_name: Sample Application
+redirect_uris:
+  - http://localhost:4455/auth/callback
+grant_types:
+  - authorization_code
+  - refresh_token
+scope: openid profile email
+enabled: true
+tenant_id: default
+tags:
+  - sample

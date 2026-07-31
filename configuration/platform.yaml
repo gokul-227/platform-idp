@@ -1,0 +1,265 @@
+# =============================================================================
+# Enterprise Identity Platform — Global Platform Configuration
+# =============================================================================
+# This is the master configuration file for the platform. Not actually
+# consumed by Compose/Helm/Kubernetes/Terraform yet — each defines its own
+# values independently (see docs/10-reference/final-audit-report.md §6). An
+# earlier per-environment override mechanism (config/environments/<env>/) was
+# removed: nothing read it, and it referenced a stale admin_ui concept that
+# predates ADR-0011's upstream-UI adoption.
+# =============================================================================
+
+platform:
+  name: "Enterprise Identity Platform"
+  version: "1.0.0"
+  organization: "Your Organization"
+  # Used in emails, UI, and API responses
+  display_name: "Identity Platform"
+  support_email: "platform-support@yourcompany.com"
+
+# ─── URLs ────────────────────────────────────────────────────────────────────
+urls:
+  # Public-facing base URL (used in emails, redirects)
+  base: "${PLATFORM_BASE_URL}"
+  # Ory service URLs
+  kratos_public: "${KRATOS_PUBLIC_URL}"
+  kratos_admin: "${KRATOS_ADMIN_URL}"
+  hydra_public: "${HYDRA_PUBLIC_URL}"
+  hydra_admin: "${HYDRA_ADMIN_URL}"
+  keto_read: "${KETO_READ_URL}"
+  keto_write: "${KETO_WRITE_URL}"
+  oathkeeper_proxy: "${OATHKEEPER_PROXY_URL}"
+  # Admin UI
+  admin_ui: "http://localhost:3000"
+
+# ─── Authentication ───────────────────────────────────────────────────────────
+authentication:
+  # Self-service flows
+  registration:
+    enabled: true
+    # Require email verification before login
+    require_verification: true
+    # Rate limit: max registrations per hour per IP
+    rate_limit: 5
+
+  login:
+    # Authenticator Assurance Level: aal1 | aal2
+    # aal2 requires a second factor
+    default_aal: aal1
+    # Require MFA for admins
+    admin_required_aal: aal2
+
+  # MFA Settings
+  mfa:
+    totp:
+      enabled: true
+      issuer: "Identity Platform"
+    webauthn:
+      enabled: true
+      # Passkeys (passwordless WebAuthn)
+      passkeys: true
+    backup_codes:
+      enabled: true
+      count: 10
+    lookup_secrets:
+      enabled: true
+
+  # Session configuration
+  session:
+    lifespan: "720h"          # 30 days
+    idle_timeout: "30m"
+    cookie:
+      same_site: Lax
+      http_only: true
+      secure: false           # true in production
+      domain: "localhost"
+
+  # Social Login
+  social_login:
+    enabled: true
+    providers:
+      - google
+      - github
+      - microsoft
+      - apple
+      - gitlab
+
+  # Account security
+  security:
+    # Brute force protection
+    brute_force:
+      enabled: true
+      max_attempts: 5
+      lockout_duration: "15m"
+      reset_after: "1h"
+    # Account lockout
+    lockout:
+      enabled: true
+      max_failures: 10
+    # CAPTCHA integration point
+    captcha:
+      enabled: false
+      provider: recaptcha_v3   # recaptcha_v3 | hcaptcha | turnstile
+      site_key: "${CAPTCHA_SITE_KEY}"
+      secret_key: "${CAPTCHA_SECRET_KEY}"
+      threshold: 0.5
+
+# ─── Authorization ────────────────────────────────────────────────────────────
+authorization:
+  # Default permission model
+  model: rebac              # rbac | abac | rebac
+  # Keto namespace configuration
+  namespaces:
+    - organizations
+    - projects
+    - teams
+    - groups
+    - users
+    - resources
+    - applications
+  # Default roles
+  default_roles:
+    - platform_admin
+    - org_admin
+    - org_member
+    - viewer
+
+# ─── Multi-Tenancy ────────────────────────────────────────────────────────────
+multi_tenancy:
+  enabled: true
+  # Isolation level: schema | database | row
+  isolation: row
+  # Default org settings
+  defaults:
+    max_users: 1000
+    max_applications: 50
+    features:
+      sso: true
+      saml: false
+      custom_domains: false
+      api_access: true
+
+# ─── Email ────────────────────────────────────────────────────────────────────
+email:
+  # Provider: smtp | ses | sendgrid | mailgun | resend
+  provider: "${EMAIL_PROVIDER}"
+  from:
+    address: "${SMTP_FROM_ADDRESS}"
+    name: "${SMTP_FROM_NAME}"
+  templates:
+    directory: "./ory/kratos/email-templates"
+    default_locale: en
+
+# ─── SMS ──────────────────────────────────────────────────────────────────────
+sms:
+  # Provider: twilio | aws-sns
+  provider: "${SMS_PROVIDER}"
+  enabled: false
+
+# ─── Secrets Management ───────────────────────────────────────────────────────
+secrets:
+  # Provider: dotenv | vault | aws-secrets-manager | gcp-secret-manager
+  provider: "${SECRETS_PROVIDER}"
+  # Rotation schedule (cron expression)
+  rotation_schedule: "0 0 * * 0"  # Weekly
+
+# ─── Storage ──────────────────────────────────────────────────────────────────
+storage:
+  # Provider: local | s3 | gcs
+  provider: "${STORAGE_PROVIDER}"
+
+# ─── Observability ────────────────────────────────────────────────────────────
+observability:
+  logging:
+    level: "${PLATFORM_LOG_LEVEL}"
+    format: "${PLATFORM_LOG_FORMAT}"   # json | text
+    # Include these in every log line
+    default_fields:
+      service: identity-platform
+      version: "${PLATFORM_VERSION}"
+      environment: "${PLATFORM_ENV}"
+  tracing:
+    enabled: "${OTEL_ENABLED}"
+    endpoint: "${OTEL_ENDPOINT}"
+    sampling_rate: 0.1        # 10% in production
+  metrics:
+    enabled: true
+    port: 9090
+    path: /metrics
+  # Correlation IDs
+  correlation_id:
+    header: "X-Correlation-ID"
+    propagate: true
+  # Structured logging fields
+  structured_logging:
+    trace_id_field: "trace_id"
+    span_id_field: "span_id"
+    request_id_field: "request_id"
+
+# ─── Security ─────────────────────────────────────────────────────────────────
+security:
+  # CORS
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "http://localhost:3001"
+    allowed_methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    allowed_headers: ["Content-Type", "Authorization", "X-Correlation-ID"]
+    allow_credentials: true
+    max_age: 3600
+  # CSRF
+  csrf:
+    enabled: true
+    token_header: "X-CSRF-Token"
+  # Security Headers
+  headers:
+    x_frame_options: DENY
+    x_content_type_options: nosniff
+    x_xss_protection: "1; mode=block"
+    strict_transport_security: "max-age=31536000; includeSubDomains"
+    content_security_policy: "default-src 'self'"
+    referrer_policy: "strict-origin-when-cross-origin"
+    permissions_policy: "camera=(), microphone=(), geolocation=()"
+  # TLS
+  tls:
+    enabled: false          # true in production
+    min_version: "1.2"      # Never below TLS 1.2
+    preferred_version: "1.3"
+
+# ─── Rate Limiting ────────────────────────────────────────────────────────────
+rate_limiting:
+  enabled: "${RATE_LIMIT_ENABLED}"
+  backend: redis            # memory | redis
+  rules:
+    login:
+      max: "${RATE_LIMIT_LOGIN_MAX}"
+      window: "${RATE_LIMIT_LOGIN_WINDOW}"
+    registration:
+      max: "${RATE_LIMIT_REGISTRATION_MAX}"
+      window: "${RATE_LIMIT_REGISTRATION_WINDOW}"
+    password_reset:
+      max: 3
+      window: 1h
+    api:
+      max: 1000
+      window: 1m
+
+# ─── Feature Flags ────────────────────────────────────────────────────────────
+features:
+  passkeys: "${FEATURE_PASSKEYS_ENABLED}"
+  magic_link: "${FEATURE_MAGIC_LINK_ENABLED}"
+  mfa_required: "${FEATURE_MFA_REQUIRED}"
+  social_login: "${FEATURE_SOCIAL_LOGIN_ENABLED}"
+  saml: "${FEATURE_SAML_ENABLED}"
+  device_flow: "${FEATURE_DEVICE_FLOW_ENABLED}"
+  multi_tenancy: "${FEATURE_MULTI_TENANCY_ENABLED}"
+
+# ─── Plugin Registry ──────────────────────────────────────────────────────────
+plugins:
+  # Auto-discover plugins from these directories
+  discovery_paths:
+    - "./plugins"
+  # Enable/disable specific plugins
+  enabled: []
+  disabled: []

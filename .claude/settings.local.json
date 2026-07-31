@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl version *)",
+      "Bash(uv run *)",
+      "Bash(docker compose *)",
+      "Bash(uv sync *)",
+      "Bash(xargs -0 -n1 bash -n)",
+      "Bash(terraform -chdir=terraform/modules/postgresql init -backend=false)",
+      "Bash(terraform -chdir=terraform/modules/postgresql validate)",
+      "Bash(make validate *)"
+    ]
+  }
+}

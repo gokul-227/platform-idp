@@ -1,0 +1,11 @@
+# Seeded to match the platform's actual current login behavior (password +
+# social login enabled in ory/kratos/config/kratos.yaml.tmpl) — not a
+# placeholder. Managed from /console/flows; publishing this is enable-only
+# (see platform/flow-service/README.md) so it never turns password off.
+id: standard-login
+name: Standard Login
+type: login
+enabled: true
+steps:
+  - password
+  - oidc

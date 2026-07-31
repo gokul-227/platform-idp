@@ -1,0 +1,22 @@
+# A second, independent theme — proves theming is genuinely config-driven
+# and not hardcoded to NeoBIM. Point THEME_CONFIG_PATH at this file (instead
+# of configuration/themes/neobim.yaml) to rebrand the identity UI for a different
+# company, with zero code changes. See configuration/themes/neobim.yaml for the
+# field-for-field contract (applications/neobim-identity-ui/themes/types.ts).
+productName: Example Co Identity
+companyName: Example Co
+logo:
+  src: /example-co-mark.svg
+  alt: Example Co
+favicon: /favicon.ico
+colors:
+  background: var(--background)
+  foreground: var(--foreground)
+  accent: var(--primary)
+  accentForeground: var(--primary-foreground)
+  border: var(--border)
+typography:
+  fontFamily: var(--font-sans)
+footer:
+  text: "© Example Co"
+  links: []

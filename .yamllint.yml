@@ -1,0 +1,43 @@
+---
+# yamllint configuration for Enterprise Identity Platform
+# https://yamllint.readthedocs.io/
+
+extends: default
+
+rules:
+  line-length:
+    max: 160
+    level: warning
+
+  truthy:
+    allowed-values: ["true", "false", "yes", "no", "on", "off"]
+    check-keys: true
+
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: true
+
+  document-start:
+    present: false
+
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 0
+
+ignore: |
+  node_modules/
+  .next/
+  dist/
+  vendor/
+  .terraform/
+  charts/
+  *.tgz

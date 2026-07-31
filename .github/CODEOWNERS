@@ -1,0 +1,74 @@
+# =============================================================================
+# Enterprise Identity Platform — CODEOWNERS
+# =============================================================================
+# Controls who must review changes to specific paths.
+# Format: <pattern> <owner> [<owner> ...]
+# =============================================================================
+
+# Default: Platform Team owns everything unless overridden below
+*                                   @your-org/platform-team
+
+# ─── Core Platform Services ───────────────────────────────────────────────────
+# No custom admin UI: platform/admin-ui/ is intentionally absent — see ADR-0011.
+/platform/                          @your-org/platform-team
+/platform/auth-service/             @your-org/platform-team @your-org/security-team
+/platform/tenant-service/           @your-org/platform-team
+
+# ─── Ory Configurations ───────────────────────────────────────────────────────
+# Security and Platform teams must both approve Ory config changes
+/ory/                               @your-org/platform-team @your-org/security-team
+/ory/kratos/                        @your-org/platform-team @your-org/security-team
+/ory/hydra/                         @your-org/platform-team @your-org/security-team
+/ory/keto/                          @your-org/platform-team @your-org/security-team
+/ory/oathkeeper/                    @your-org/platform-team @your-org/security-team
+
+# ─── Identity Schemas ─────────────────────────────────────────────────────────
+# Schema changes affect all registered users — require extra review
+/ory/kratos/identity-schemas/       @your-org/platform-team @your-org/security-team
+
+# ─── Infrastructure ───────────────────────────────────────────────────────────
+/terraform/                         @your-org/infra-team @your-org/platform-team
+/kubernetes/                        @your-org/infra-team @your-org/platform-team
+/helm/                              @your-org/infra-team @your-org/platform-team
+/docker/                            @your-org/infra-team @your-org/platform-team
+
+# ─── Security ─────────────────────────────────────────────────────────────────
+/security/                          @your-org/security-team
+/.pre-commit-config.yaml            @your-org/security-team @your-org/platform-team
+/.secrets.baseline                  @your-org/security-team
+
+# ─── CI/CD ────────────────────────────────────────────────────────────────────
+/.github/                           @your-org/platform-team @your-org/infra-team
+/.github/workflows/                 @your-org/platform-team @your-org/infra-team
+
+# ─── Application Registry ─────────────────────────────────────────────────────
+# Any team can add their app, but Platform Team must approve the PR
+/registry/                          @your-org/platform-team
+
+# ─── Observability ────────────────────────────────────────────────────────────
+/observability/                     @your-org/infra-team @your-org/platform-team
+
+# ─── Plugins ──────────────────────────────────────────────────────────────────
+/plugins/                           @your-org/platform-team
+
+# ─── Documentation ────────────────────────────────────────────────────────────
+/docs/                              @your-org/platform-team
+/docs/adr/                          @your-org/platform-team @your-org/engineering-leads
+
+# ─── Tests ────────────────────────────────────────────────────────────────────
+/tests/security/                    @your-org/security-team @your-org/platform-team
+/tests/                             @your-org/platform-team
+
+# ─── Configuration ────────────────────────────────────────────────────────────
+/config/                            @your-org/platform-team @your-org/infra-team
+/config/environments/prod/          @your-org/platform-team @your-org/engineering-leads
+
+# ─── CLI ──────────────────────────────────────────────────────────────────────
+# Python-first per ADR-0012; no Go CLI under /cli/.
+/tools/                             @your-org/platform-team
+
+# ─── Root Files ───────────────────────────────────────────────────────────────
+/Makefile                           @your-org/platform-team
+/Taskfile.yml                       @your-org/platform-team
+/README.md                          @your-org/platform-team
+/renovate.json                      @your-org/platform-team @your-org/infra-team

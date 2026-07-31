@@ -1,0 +1,129 @@
+# =============================================================================
+# Ory Hydra — Production Configuration
+# =============================================================================
+# Complete OAuth2 and OpenID Connect (OIDC) Server configuration.
+# Coordinates login/consent flow with platform-services / Kratos.
+#
+# Documentation: https://www.ory.sh/docs/hydra/reference/configuration
+# =============================================================================
+
+version: v2.2.0
+
+# ─── Service Identity ─────────────────────────────────────────────────────────
+serve:
+  public:
+    port: 4444
+    host: 0.0.0.0
+    cors:
+      enabled: true
+      allowed_origins:
+        - ${AUTH_UI_BASE_URL}        # Auth UI
+        - ${PLATFORM_BASE_URL}       # Oathkeeper Proxy
+      allowed_methods:
+        - GET
+        - POST
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+      allow_credentials: true
+  admin:
+    port: 4445
+    host: 0.0.0.0
+    # Admin API should NEVER be exposed to the internet.
+    # Exposes endpoints to create clients, manage keys, and handle flows.
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+dsn: ${HYDRA_DATABASE_URL}
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# WARNING: These MUST be at least 32 characters.
+# Generate with: openssl rand -base64 32
+secrets:
+  system:
+    - ${HYDRA_SECRETS_SYSTEM}
+  cookie:
+    - ${HYDRA_SECRETS_COOKIE}
+
+# ─── URLs ──────────────────────────────────────────────────────────────────────
+# Base URLs used to resolve login, consent, and logout flows.
+# Point to the auth-service orchestrator, at a distinct /hydra/* prefix —
+# NOT /auth/* — because /auth/* is Kratos's self-service UI prefix (see
+# ory/kratos/config/kratos.yaml's selfservice.flows.*.ui_url entries,
+# served by auth-ui). Both used to resolve to the same /auth/login path,
+# which Oathkeeper cannot route to two different backends by path alone.
+# NOTE: `urls`/`ttl` are top-level keys in this Hydra version, not nested
+# under `oauth2` — nesting them there fails schema validation
+# ("additionalProperties: allowed_grant_types, urls, lifespans not allowed").
+urls:
+  login: ${PLATFORM_BASE_URL}/hydra/login
+  consent: ${PLATFORM_BASE_URL}/hydra/consent
+  logout: ${PLATFORM_BASE_URL}/hydra/logout
+  error: ${PLATFORM_BASE_URL}/hydra/error
+  # Hydra's own externally-reachable base URL — without this it can't build
+  # correct self-referencing URLs (e.g. the `redirect_to` it hands back to
+  # auth-service after accepting a login/consent request comes back as
+  # "https:///oauth2/auth?..." with an empty host). Must match where
+  # /oauth2/* and /.well-known/* are actually reachable — see
+  # hydra-public-rules/hydra-well-known-rules in access-rules.json, both
+  # unprefixed at PLATFORM_BASE_URL.
+  self:
+    issuer: ${PLATFORM_BASE_URL}
+
+# ─── Token Lifespans ───────────────────────────────────────────────────────────
+ttl:
+  # Authorization Code (PKCE flow)
+  auth_code: 10m
+  # Access Token (JWT or Opaque)
+  access_token: 1h
+  # Refresh Token (renewable)
+  refresh_token: 720h       # 30 days
+  # OIDC ID Token
+  id_token: 1h
+
+# ─── OAuth2 Configuration ─────────────────────────────────────────────────────
+# Grant types are configured per-OAuth2-client (see platform/app-registry),
+# not globally — there is no `allowed_grant_types` key at this level.
+oauth2:
+  # Strict OpenID Connect requirements
+  exclude_not_before_claim: false
+
+  # Force PKCE for public clients (e.g. SPAs, Mobile Apps)
+  pkce:
+    enforced: true
+    enforced_for_public_clients: true
+
+# ─── OIDC Settings ────────────────────────────────────────────────────────────
+oidc:
+  subject_identifiers:
+    supported_types:
+      - pairwise
+      - public
+    # Salt used to obfuscate user IDs in pairwise mode
+    pairwise:
+      salt: ${HYDRA_PAIRWISE_SALT}
+
+# ─── Cryptographic Keys (JWK) ─────────────────────────────────────────────────
+# Hydra rotates these keys automatically if configured.
+# We will pre-generate signing keys during deployment.
+
+# ─── Observability ────────────────────────────────────────────────────────────
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false
+
+tracing:
+  provider: otel
+  providers:
+    otlp:
+      insecure: true
+      sampling:
+        sampling_ratio: 0.1
+      # This Hydra version does not expand ${VAR} here — hardcoded, matching
+      # ory/keto/config/keto.yaml's identical fix.
+      # Scheme-less host:port — the schema rejects a URI here. 4318 = the
+      # collector's OTLP/HTTP receiver: Ory's exporters speak OTLP-over-HTTP,
+      # so pointing at the gRPC port (4317) silently delivers nothing (both
+      # found live during the first observability bring-up, AI_HANDOFF §1.13).
+      server_url: otel-collector:4318

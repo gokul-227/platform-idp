@@ -1,0 +1,17 @@
+productName: NeoBIM Identity
+companyName: NeoBIM
+logo:
+  src: /neobim-mark.svg
+  alt: NeoBIM
+favicon: /favicon.ico
+colors:
+  background: var(--background)
+  foreground: var(--foreground)
+  accent: var(--primary)
+  accentForeground: var(--primary-foreground)
+  border: var(--border)
+typography:
+  fontFamily: var(--font-sans)
+footer:
+  text: "\xA9 NeoBIM"
+  links: []

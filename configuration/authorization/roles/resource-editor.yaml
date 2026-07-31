@@ -1,0 +1,5 @@
+id: resource-editor
+name: Resource Editor
+namespace: Resource
+relation: editor
+description: Write access to a resource.

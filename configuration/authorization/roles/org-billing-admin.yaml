@@ -1,0 +1,7 @@
+id: org-billing-admin
+name: Security Admin
+namespace: Organization
+relation: billing_admin
+description: "Repurposed from Organization billing_admin relation \u2014 Keto has\
+  \ no dedicated security relation, so this label reuses the third Organization relation\
+  \ slot."

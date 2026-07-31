@@ -1,0 +1,6 @@
+id: team-member-role
+name: Team Member
+namespace: Team
+relation: member
+description: Member of a specific department team (see the object column for which
+  team).

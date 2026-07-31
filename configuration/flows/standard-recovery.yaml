@@ -1,0 +1,7 @@
+id: standard-recovery
+name: Standard Recovery
+type: recovery
+enabled: true
+steps:
+  - link
+  - code

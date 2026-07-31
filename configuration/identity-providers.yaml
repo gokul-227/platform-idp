@@ -1,0 +1,27 @@
+# Identity Providers — which Kratos OIDC (social login) providers are
+# active, managed from the console's Identity Providers page instead of
+# hand-editing ory/kratos/config/kratos.yaml.tmpl.
+#
+# This file does NOT configure credentials — those stay exactly where they
+# already were, in ory/kratos/config/kratos.yaml.tmpl's provider entries,
+# sourced from the SOCIAL_*_CLIENT_ID/SECRET env vars. This file only
+# controls which of those already-defined providers actually reach Kratos:
+# platform/console-api's identity_providers.apply_to_rendered_config()
+# filters the rendered kratos.yaml's `providers` list down to the ids
+# marked enabled here, as a step between config-render and Kratos startup.
+#
+# Applying a change here requires re-rendering + restarting Kratos (Kratos
+# has no runtime config-reload API in the open-source edition — this is a
+# pre-existing constraint, not one introduced by this file) — see
+# platform/console-api/README.md.
+providers:
+  - id: google
+    enabled: true
+  - id: github
+    enabled: true
+  - id: microsoft
+    enabled: true
+  - id: apple
+    enabled: true
+  - id: gitlab
+    enabled: true

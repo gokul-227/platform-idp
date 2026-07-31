@@ -1,0 +1,28 @@
+---
+# .markdownlint.yml — Markdown linting rules
+# https://github.com/DavidAnson/markdownlint
+
+default: true
+
+# Allow HTML in markdown files (for badges, diagrams)
+MD033:
+  allowed_elements:
+    - div
+    - img
+    - br
+    - details
+    - summary
+    - sup
+    - sub
+
+# Allow multiple headings with the same content (across files)
+MD024: false
+
+# Line length — disable (handled by Prettier)
+MD013: false
+
+# First heading level can be any level (some docs start with h2)
+MD041: false
+
+# Allow trailing punctuation in headings (e.g. "Overview:")
+MD026: false

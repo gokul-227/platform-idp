@@ -1,0 +1,6 @@
+id: org-admin
+name: Platform Admin
+namespace: Organization
+relation: admin
+description: Full administrative control over an organization (used platform-wide
+  for Marcus Chen).

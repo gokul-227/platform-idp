@@ -1,0 +1,7 @@
+id: standard-verification
+name: Standard Verification
+type: verification
+enabled: true
+steps:
+  - link
+  - code

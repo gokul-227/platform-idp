@@ -1,0 +1,7 @@
+id: org-member
+name: Organization Member
+namespace: Organization
+relation: member
+description: "Baseline organization membership \u2014 Guest and Employee both use\
+  \ this; the distinguishing factor is the presence or absence of team/application\
+  \ access, not a separate relation."

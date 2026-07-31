@@ -1,0 +1,26 @@
+# applications/examples/open-webui — real upstream application (open-webui/open-webui
+# v0.10.2), run from its unmodified official image, not vendored here.
+# enabled: false by default — flip to true and run `make sync` to create the
+# Hydra client. Secret comes from the env var below, never from this file.
+client_id: open-webui
+client_name: Open WebUI (real upstream Python/FastAPI application)
+redirect_uris:
+  - http://localhost:9927/oauth/oidc/callback
+post_logout_redirect_uris:
+  - http://localhost:9927/
+grant_types:
+  - authorization_code
+  - refresh_token
+scope: openid profile email
+# Open WebUI's Authlib client defaults to client_secret_basic (same as
+# Mealie) — confirmed live. PKCE is opt-in via its own OAUTH_CODE_CHALLENGE_METHOD=S256
+# env var, NOT automatic despite the client library supporting it — without
+# that env var Open WebUI omits code_challenge entirely and this platform's
+# PKCE-enforced Hydra rejects the authorize request outright.
+client_secret_env_var: OPEN_WEBUI_OIDC_CLIENT_SECRET
+token_endpoint_auth_method: client_secret_basic
+enabled: true
+tenant_id: default
+tags:
+  - sample-app
+  - verified-upstream

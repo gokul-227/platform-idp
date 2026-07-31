@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset
+  labels:
+    app.kubernetes.io/name: superset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      containers:
+        - name: superset
+          image: eip-superset:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8088
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: application-oidc-secrets
+                  key: superset-secret-key
+            - name: SUPERSET_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: application-oidc-secrets
+                  key: superset-client-secret
+            - name: OIDC_DISCOVERY_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-urls
+                  key: OIDC_DISCOVERY_URL
+            - name: PLATFORM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-urls
+                  key: PLATFORM_BASE_URL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset
+spec:
+  ports:
+    - port: 8088
+      targetPort: 8088
+  selector:
+    app: superset

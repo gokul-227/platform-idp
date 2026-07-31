@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # ─── OpenTelemetry Collector ────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.95.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ../../../observability/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317" # grpc receiver
+      - "${OTEL_HTTP_PORT:-4318}:4318" # http receiver
+      - "${OTEL_METRICS_PORT:-8889}:8889" # prometheus metrics exporter
+    # No healthcheck: the collector-contrib image ships no shell/nc/wget
+    # (the previous `nc -z` check made it permanently "unhealthy" while the
+    # collector worked fine — same missing-binary class as the wget bug in
+    # AI_HANDOFF §1.6 item 13). Nothing gates on its health; failures show
+    # up in its own logs and in missing telemetry downstream.
+
+  # ─── Prometheus (Metrics) ───────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ../../../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ../../../observability/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - otel-collector
+
+  # ─── Grafana (Visualization Dashboard) ──────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.3
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin_secret}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../../../observability/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  # ─── Loki (Log Aggregation) ─────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.4
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - loki-data:/loki
+      - ../../../observability/loki/loki-config.yaml:/etc/loki/local-config.yaml
+
+  # ─── Promtail (Log Collector) ──────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:2.9.4
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # promtail-config.yaml uses docker_sd_configs — without the socket,
+      # discovery fails every 5s and Loki receives nothing (hit live on the
+      # first observability bring-up, AI_HANDOFF §1.13).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../../../observability/loki/promtail-config.yaml:/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  # ─── Tempo (Trace Storage) ──────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.3.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../../../observability/tempo/tempo-config.yaml:/etc/tempo.yaml
+      - tempo-data:/tmp/tempo
+    ports:
+      - "${TEMPO_PORT:-3200}:3200" # tempo web
+      - "${TEMPO_ZIPKIN_PORT:-9411}:9411" # zipkin
+
+  # ─── Postgres Exporters (one per database, credentials match docker-compose.yml) ─
+  postgres-exporter-kratos:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://kratos:${POSTGRES_KRATOS_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable"
+
+  postgres-exporter-hydra:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://hydra:${POSTGRES_HYDRA_PASSWORD}@postgres-hydra:5432/hydra?sslmode=disable"
+
+  postgres-exporter-keto:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://keto:${POSTGRES_KETO_PASSWORD}@postgres-keto:5432/keto?sslmode=disable"
+
+  postgres-exporter-platform:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://platform:${POSTGRES_PLATFORM_PASSWORD}@postgres-platform:5432/platform?sslmode=disable"
+
+  # ─── Redis Exporter ──────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:

@@ -1,0 +1,240 @@
+version: '3.8'
+
+# Optional, independently removable upstream application plugins. Start with:
+# docker compose -f docker/compose/docker-compose.yml -f docker/compose/docker-compose.dev.yml -f docker/compose/docker-compose.applications.yml up -d
+services:
+  superset:
+    build: {context: ../../../applications/examples/superset}
+    # Confirmed live: this service was missing both `ports` and
+    # OAUTH_CALLBACK_URL entirely — the container actually running under the
+    # bare name `superset` (pre-existing this session) was started outside
+    # this compose file, by some other means, and this file had silently
+    # drifted out of sync with it. Recreating from this file crashed with
+    # `KeyError: 'OAUTH_CALLBACK_URL'` until both were added.
+    ports:
+      - "${SUPERSET_PORT:-9928}:8088"
+    environment:
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      SUPERSET_OIDC_CLIENT_SECRET: ${SUPERSET_OIDC_CLIENT_SECRET}
+      OIDC_DISCOVERY_URL: http://oathkeeper:4455/.well-known/openid-configuration
+      # Matches integrations/applications/superset.yaml's redirect_uris exactly.
+      OAUTH_CALLBACK_URL: http://localhost:${SUPERSET_PORT:-9928}/oauth-authorized/hydra
+    volumes:
+      - ../../../applications/examples/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - superset-data:/app/superset_home
+    command: /bin/sh -c "superset db upgrade && superset init && gunicorn --bind 0.0.0.0:8088 --workers 1 --threads 4 'superset.app:create_app()'"
+  airflow:
+    build: {context: ../../../applications/examples/airflow}
+    # Same gap as superset above: no `ports`, no OAUTH_CALLBACK_URL.
+    ports:
+      - "${AIRFLOW_PORT:-9929}:8080"
+    environment:
+      PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      AIRFLOW__WEBSERVER__CONFIG_FILE: /opt/airflow/webserver_config.py
+      AIRFLOW_OIDC_CLIENT_SECRET: ${AIRFLOW_OIDC_CLIENT_SECRET}
+      OIDC_DISCOVERY_URL: http://oathkeeper:4455/.well-known/openid-configuration
+      AIRFLOW__WEBSERVER__BASE_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}/apps/airflow
+      # Matches integrations/applications/airflow.yaml's redirect_uris exactly.
+      OAUTH_CALLBACK_URL: http://localhost:${AIRFLOW_PORT:-9929}/apps/airflow/oauth-authorized/hydra
+    volumes:
+      - ../../../applications/examples/airflow/webserver_config.py:/opt/airflow/webserver_config.py:ro
+      - airflow-data:/opt/airflow
+    command: standalone
+  # Mealie and Open WebUI (below) were ALSO missing from this file entirely —
+  # both were running (bare container names `mealie`/`open-webui`, started
+  # outside this compose project) with no corresponding service definition
+  # anywhere in this repo. Added here from the real running containers'
+  # actual environment (`docker exec <name> env`), so this file is now a
+  # true, reproducible source for all four sample apps, not just two of them.
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v2.8.0
+    ports:
+      - "${MEALIE_PORT:-9925}:9000"
+    environment:
+      BASE_URL: http://localhost:${MEALIE_PORT:-9925}
+      OIDC_AUTH_ENABLED: "true"
+      OIDC_SIGNUP_ENABLED: "true"
+      OIDC_PROVIDER_NAME: Identity Platform
+      OIDC_CONFIGURATION_URL: http://oathkeeper:4455/.well-known/openid-configuration
+      OIDC_CLIENT_ID: mealie
+      OIDC_CLIENT_SECRET: ${MEALIE_OIDC_CLIENT_SECRET}
+    # Without this, a cold `docker compose up` can start mealie before
+    # oathkeeper's DNS entry exists, so the getent lookup in the entrypoint
+    # below resolves nothing and /etc/hosts never gets rewritten — confirmed
+    # live as a real (if intermittent) startup race on full stack recreation.
+    depends_on:
+      - oathkeeper
+    volumes:
+      - mealie-data:/app/data
+    # Real fix, verified live (not a workaround): Mealie's own server-side
+    # token exchange calls whatever URL the discovery document (fetched
+    # correctly via the internal `oathkeeper` hostname above) says its
+    # token_endpoint is — and that's `http://localhost:4455/...`, because
+    # that's what the browser needs too. Inside Mealie's own container,
+    # "localhost" resolves to itself, not Oathkeeper, so that call used to
+    # fail with ECONNREFUSED. Confirmed the real cause is glibc's NSS "files"
+    # backend, which returns BOTH the container's own 127.0.0.1/::1 entries
+    # for "localhost" ahead of anything appended via Compose's `extra_hosts`
+    # (which only appends after the default entry, so it's silently never
+    # used — verified empirically both ways). The fix that actually works is
+    # rewriting (not appending to) /etc/hosts at container start, pointed at
+    # Oathkeeper's real container IP resolved fresh each start via Docker's
+    # embedded DNS (`getent hosts oathkeeper`), then exec-ing Mealie's real
+    # entrypoint unchanged.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        OATHKEEPER_IP=$$(getent hosts oathkeeper | awk '{print $$1}')
+        grep -v '^::1' /etc/hosts | sed "s/^127\.0\.0\.1[[:space:]]*localhost$$/$${OATHKEEPER_IP}\tlocalhost/" > /tmp/newhosts
+        cat /tmp/newhosts > /etc/hosts
+        exec /app/run.sh
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "${OPEN_WEBUI_PORT:-9927}:8080"
+    environment:
+      WEBUI_URL: http://localhost:${OPEN_WEBUI_PORT:-9927}
+      WEBUI_AUTH: "true"
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_PROVIDER_NAME: Identity Platform
+      OAUTH_CLIENT_ID: open-webui
+      OAUTH_CLIENT_SECRET: ${OPEN_WEBUI_OIDC_CLIENT_SECRET}
+      OAUTH_CODE_CHALLENGE_METHOD: S256
+      OAUTH_SCOPES: openid email profile
+      OPENID_PROVIDER_URL: http://oathkeeper:4455/.well-known/openid-configuration
+      # Real, application-level (not Ory-side) issue confirmed live: Open
+      # WebUI only auto-activates the very first user ever provisioned
+      # (who becomes its "admin"); every subsequent user auto-created via
+      # OIDC defaults to role "pending" and is blocked with "Account
+      # Activation Pending" until an existing Open WebUI admin manually
+      # approves them in its own Admin Panel. This is Open WebUI's own
+      # first-run/onboarding design, not an authentication failure — Kratos
+      # and Hydra had already fully authenticated the user by this point.
+      # DEFAULT_USER_ROLE controls the role assigned to every subsequently
+      # auto-provisioned user; setting it to "user" (Open WebUI's normal,
+      # non-admin role) makes every already-authenticated NeoBIM demo user
+      # usable immediately, matching what real Kratos/Hydra authentication
+      # already established, without weakening authentication itself.
+      DEFAULT_USER_ROLE: user
+    # Same startup-race fix as mealie above.
+    depends_on:
+      - oathkeeper
+    volumes:
+      - open-webui-data:/app/backend/data
+    # Same real fix as mealie above — same root cause, same verified solution.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        OATHKEEPER_IP=$$(getent hosts oathkeeper | awk '{print $$1}')
+        grep -v '^::1' /etc/hosts | sed "s/^127\.0\.0\.1[[:space:]]*localhost$$/$${OATHKEEPER_IP}\tlocalhost/" > /tmp/newhosts
+        cat /tmp/newhosts > /etc/hosts
+        cd /app/backend && exec bash start.sh
+  # NeoBIM UI — additive-only. ui-neobim's design system + a page layout
+  # harvested from platform-neobim/apps/auth, wired to authenticate through
+  # this platform's existing Hydra/Kratos, same as the four apps above.
+  # NeoBIM's own auth backend (Better Auth / oauth-provider) is intentionally
+  # NOT deployed anywhere in this repo — see docs/07-applications/neobim-auth.md.
+  # Primary context is the repo root; the real `ui` repo (a sibling of
+  # Ory_IDP, outside this build context by design) is reached via a named
+  # additional context instead — see applications/neobim/neobim-ui/Dockerfile.
+  neobim-ui:
+    build:
+      context: ../../..
+      dockerfile: applications/neobim/neobim-ui/Dockerfile
+      additional_contexts:
+        # ui/ (the sibling @aec-craft/ui design-system repo) no longer nests
+        # under packages/ui — it dropped that monorepo wrapper and now lives
+        # at its own repo root. Discovered live: this build context failed
+        # with "no such file or directory" the first time these images were
+        # rebuilt from scratch since that external change, unrelated to this
+        # repo's own Phase 5 restructuring.
+        uipkg: ../../../../ui
+    ports:
+      - "${NEOBIM_UI_PORT:-9930}:3000"
+    # Same startup-race fix as mealie/open-webui above — hit live on a full
+    # stack recreation (neobim-ui started before oathkeeper's DNS entry
+    # existed, so its entrypoint's getent lookup resolved nothing).
+    depends_on:
+      - oathkeeper
+    environment:
+      HYDRA_PUBLIC_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      NEOBIM_OIDC_CLIENT_ID: neobim-ui
+      NEOBIM_OIDC_CLIENT_SECRET: ${NEOBIM_OIDC_CLIENT_SECRET}
+      NEOBIM_REDIRECT_URI: ${NEOBIM_REDIRECT_URI:-http://localhost:9930/auth/callback}
+      NEOBIM_POST_LOGOUT_REDIRECT_URI: ${NEOBIM_POST_LOGOUT_REDIRECT_URI:-http://localhost:9930/}
+      # This compose stack terminates no TLS anywhere (Kratos/Hydra/Oathkeeper
+      # all run --dev for the same reason) — confirmed live this must be set
+      # or openid-client refuses discovery with OAUTH_HTTP_REQUEST_FORBIDDEN.
+      # A TLS-terminated deployment must NOT set this.
+      NEOBIM_OIDC_ALLOW_INSECURE_HTTP: "true"
+      # Next's standalone server.js binds to $HOSTNAME if set, and Docker
+      # sets HOSTNAME to the container ID automatically — without this
+      # override the server fails to start entirely ("getaddrinfo EAI_AGAIN
+      # <container-id>"), confirmed live. Same fix as identity-ui's compose
+      # service in docker-compose.dev.yml.
+      HOSTNAME: "0.0.0.0"
+    # Same real, verified fix as mealie/open-webui above: NEOBIM_REDIRECT_URI
+    # and HYDRA_PUBLIC_URL both use "localhost", which this container would
+    # otherwise resolve to itself instead of Oathkeeper for its own
+    # server-side discovery/token calls.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        OATHKEEPER_IP=$$(getent hosts oathkeeper | awk '{print $$1}')
+        grep -v '^::1' /etc/hosts | sed "s/^127\.0\.0\.1[[:space:]]*localhost$$/$${OATHKEEPER_IP}\tlocalhost/" > /tmp/newhosts
+        cat /tmp/newhosts > /etc/hosts
+        exec node server.js
+
+  # --- Lightweight identity-validation harnesses ---
+  # Custom, local-only apps written to validate this platform's own identity
+  # and authorization flows end to end (real tokens, real Keto checks) — not
+  # third-party products, never pushed anywhere. See
+  # docs/07-applications/validation-harnesses.md.
+  flask-identity-viewer:
+    build: {context: ../../../applications/examples/flask-identity-viewer}
+    ports:
+      - "${FLASK_IDENTITY_VIEWER_PORT:-9931}:9931"
+    environment:
+      OATHKEEPER_PUBLIC_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      OATHKEEPER_INTERNAL_URL: http://oathkeeper:4455
+      KETO_READ_URL: http://keto:4466
+      OIDC_CLIENT_ID: flask-identity-viewer
+      OIDC_CLIENT_SECRET: ${FLASK_IDENTITY_VIEWER_OIDC_CLIENT_SECRET}
+      SELF_URL: http://localhost:${FLASK_IDENTITY_VIEWER_PORT:-9931}
+      FLASK_SECRET_KEY: ${FLASK_IDENTITY_VIEWER_SECRET_KEY:-dev-flask-viewer-secret}
+
+  fastapi-rbac-playground:
+    build: {context: ../../../applications/examples/fastapi-rbac-playground}
+    ports:
+      - "${FASTAPI_RBAC_PLAYGROUND_PORT:-9932}:9932"
+    environment:
+      HYDRA_ADMIN_URL: http://hydra:4445
+      KETO_READ_URL: http://keto:4466
+      OATHKEEPER_PUBLIC_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      OATHKEEPER_INTERNAL_URL: http://oathkeeper:4455
+      OIDC_CLIENT_ID: fastapi-rbac-playground
+      OIDC_CLIENT_SECRET: ${FASTAPI_RBAC_PLAYGROUND_OIDC_CLIENT_SECRET}
+      SELF_URL: http://localhost:${FASTAPI_RBAC_PLAYGROUND_PORT:-9932}
+      FASTAPI_SESSION_SECRET: ${FASTAPI_RBAC_PLAYGROUND_SECRET_KEY:-dev-fastapi-rbac-secret}
+
+  streamlit-enterprise-portal:
+    build: {context: ../../../applications/examples/streamlit-enterprise-portal}
+    ports:
+      - "${STREAMLIT_ENTERPRISE_PORTAL_PORT:-9933}:9933"
+    environment:
+      OATHKEEPER_PUBLIC_URL: ${PLATFORM_BASE_URL:-http://localhost:4455}
+      OATHKEEPER_INTERNAL_URL: http://oathkeeper:4455
+      KETO_READ_URL: http://keto:4466
+      OIDC_CLIENT_ID: streamlit-enterprise-portal
+      OIDC_CLIENT_SECRET: ${STREAMLIT_ENTERPRISE_PORTAL_OIDC_CLIENT_SECRET}
+      SELF_URL: http://localhost:${STREAMLIT_ENTERPRISE_PORTAL_PORT:-9933}
+volumes:
+  superset-data:
+  airflow-data:
+  mealie-data:
+  open-webui-data:

@@ -1,0 +1,24 @@
+# applications/examples/superset — real upstream application (apache/superset:5.0.0),
+# run from its unmodified official image, not vendored here. Runs on its own
+# port directly (same pattern as mealie/open-webui) rather than behind
+# Oathkeeper's /apps/ prefix, for this session's demo.
+client_id: superset
+client_name: Apache Superset (real upstream Python/Flask application)
+redirect_uris:
+  - http://localhost:9928/oauth-authorized/hydra
+post_logout_redirect_uris:
+  - http://localhost:9928/
+grant_types:
+  - authorization_code
+  - refresh_token
+scope: openid profile email
+# flask-appbuilder's OAuth manager passes remote_app straight to Authlib's
+# oauth.register() (confirmed by reading manager.py inside the running
+# image) — Authlib's own default is client_secret_basic, not this registry's
+# usual client_secret_post convention. Same pitfall as Mealie/Open WebUI —
+# always verify a new RP's actual behavior rather than assuming.
+client_secret_env_var: SUPERSET_OIDC_CLIENT_SECRET
+token_endpoint_auth_method: client_secret_basic
+enabled: true
+tenant_id: default
+tags: [application-plugin, python, superset, verified-upstream]

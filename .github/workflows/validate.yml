@@ -1,0 +1,73 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Container-first per docs/10-reference/adr/ADR-0013: no setup-python/uv here — every
+  # check runs inside the same dev image `make validate`/`make lint-python`
+  # build locally (deployment/docker/configs/python-dev.Dockerfile, or a service's own
+  # Dockerfile's `dev` stage), so CI and local dev can never drift apart.
+  configuration:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate configuration, lint, type-check, and test automation/validation/
+        run: make validate-tools
+      - name: Validate shell syntax
+        run: find scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Validate Docker Compose model
+        run: docker compose -f deployment/docker/compose/docker-compose.yml -f deployment/docker/compose/docker-compose.dev.yml config -q
+      - name: Validate Kustomize model
+        run: kubectl kustomize deployment/kubernetes/base --load-restrictor LoadRestrictionsNone >/dev/null
+
+  # Platform services ported to Python per ADR-0012 (plus the shared
+  # plugin-framework library, ADR-0004) — see PYTHON_PLATFORM_SERVICES in the
+  # Makefile. Add new service paths there and here as they're ported.
+  platform-services-python:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        service: [platform/hooks, platform/app-registry, platform/auth-service, platform/tenant-service, platform/email-service, platform/notification-service, platform/plugin-framework, platform/console-api, platform/audit-service, platform/authorization-service, platform/flow-service, platform/plugin-service]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dev image
+        run: automation/docker/docker-build-python-dev.sh ${{ matrix.service }}
+      - name: Lint, type-check, and test
+        run: |
+          tag="$(basename "${{ matrix.service }}")-dev"
+          docker run --rm "$tag" sh -c "uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest"
+
+  infrastructure:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: azure/setup-helm@v4
+      - name: Terraform format
+        run: terraform fmt -check -recursive terraform
+      - name: Terraform validation
+        run: |
+          for dir in terraform/environments/aws terraform/environments/gcp terraform/modules/aws/networking terraform/modules/aws/eks terraform/modules/aws/postgresql terraform/modules/aws/ecs terraform/modules/gcp/networking terraform/modules/gcp/gke terraform/modules/gcp/cloudsql terraform/modules/gcp/cloudrun; do
+            terraform -chdir="$dir" init -backend=false
+            terraform -chdir="$dir" validate
+          done
+      - name: Helm lint
+        run: |
+          helm dependency build deployment/helm/platform
+          helm lint deployment/helm/platform
+
+  security:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,40 @@
+{
+  "groups": {
+    "sparc": [
+      "Sparc Engineering",
+      null
+    ],
+    "nbu-clinic": [
+      "NorthBuild Clinic",
+      "sparc"
+    ],
+    "acme-mep": [
+      "Acme MEP",
+      "nbu-clinic"
+    ],
+    "stahlbau-huber": [
+      "Stahlbau Huber",
+      "nbu-clinic"
+    ],
+    "schmidt-architekten": [
+      "Schmidt Architekten",
+      "nbu-clinic"
+    ],
+    "acme-mep-controls": [
+      "Acme MEP \u2014 Controls Package",
+      "acme-mep"
+    ]
+  },
+  "identities": {
+    "Marius Albrecht": "0ee58393-d620-4e56-931f-20d6e79d4b3f",
+    "Lena Brandt": "36996f3b-8bc2-4389-8789-38b6b0f4d8d7",
+    "Paul Vogel": "634bdc70-9bf6-4095-9f6b-37e4f6fbd694",
+    "Jonas Weber": "a1373aac-9b02-459c-bfdd-584844b23912",
+    "Timo Bauer": "1c65eab7-6211-4413-9e35-5099a84d5158",
+    "Sebastian Huber": "d2e25709-805f-45b5-b8dd-af6bc816e569",
+    "Katrin Schmidt": "8a817098-b930-418a-b9fe-1fae9e608c77",
+    "Sabine Richter": "83b58b8b-9d5d-4c0f-86f2-d06312341865",
+    "Frida Berger": "4f1ae6f9-4e23-430c-b429-c72be109aca1",
+    "Niklas Vogt": "b20376cd-9e7a-4182-819b-ca2d950c652b"
+  }
+}

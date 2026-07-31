@@ -1,0 +1,527 @@
+version: '3.8'
+
+services:
+  # ─── Hooks Service ──────────────────────────────────────────────────────────
+  hooks-service:
+    build:
+      context: ../../../platform/hooks
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${HOOKS_SERVICE_PORT:-8082}:8082"
+    environment:
+      - PORT=8082
+      - PLATFORM_ENV=local
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - KETO_WRITE_URL=http://keto:4467
+      - KETO_READ_URL=http://keto:4466
+      - TENANT_SERVICE_URL=http://tenant-service:8081
+    depends_on:
+      - kratos
+      - keto
+
+  # ─── Tenant Service ──────────────────────────────────────────────────────────
+  # DATABASE_URL uses the postgresql+asyncpg:// scheme (SQLAlchemy async
+  # driver) — NOT postgres:// — and asyncpg does not accept ?sslmode=disable
+  # (SSL is opt-in via connect_args, off by default).
+  tenant-service-migrate:
+    build:
+      context: ../../../platform/tenant-service
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://platform:${POSTGRES_PLATFORM_PASSWORD}@postgres-platform:5432/platform
+    entrypoint: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres-platform:
+        condition: service_healthy
+
+  tenant-service:
+    build:
+      context: ../../../platform/tenant-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${TENANT_SERVICE_PORT:-8081}:8081"
+    environment:
+      - PORT=8081
+      - PLATFORM_ENV=local
+      - DATABASE_URL=postgresql+asyncpg://platform:${POSTGRES_PLATFORM_PASSWORD}@postgres-platform:5432/platform
+      - OTEL_ENABLED=false
+      # Invitations: audit trail + real invite email dispatch.
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8085
+      - PUBLIC_BASE_URL=http://localhost:4455
+    depends_on:
+      tenant-service-migrate:
+        condition: service_completed_successfully
+      audit-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+
+  # ─── Audit Service ───────────────────────────────────────────────────────────
+  # Records every Admin Portal mutation (identity/session/client/permission/
+  # application/identity-provider changes) as an immutable event. Shares the
+  # same postgres-platform database as tenant-service (its own audit_events
+  # table). platform/console-api POSTs here after each of its own mutations
+  # succeeds; console/audit reads from here.
+  audit-service-migrate:
+    build:
+      context: ../../../platform/audit-service
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://platform:${POSTGRES_PLATFORM_PASSWORD}@postgres-platform:5432/platform
+    entrypoint: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres-platform:
+        condition: service_healthy
+
+  audit-service:
+    build:
+      context: ../../../platform/audit-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${AUDIT_SERVICE_PORT:-8087}:8087"
+    environment:
+      - PORT=8087
+      - PLATFORM_ENV=local
+      - DATABASE_URL=postgresql+asyncpg://platform:${POSTGRES_PLATFORM_PASSWORD}@postgres-platform:5432/platform
+    depends_on:
+      audit-service-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8087/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Plugin Service ──────────────────────────────────────────────────────────
+  # Generic admin-manageable plugin registry (configuration/plugins/*.yaml) — NOT
+  # the same as platform/plugin-framework (a code-loading strategy pattern
+  # for swapping implementations like email providers). This is the
+  # runtime configuration registry behind /console/plugins.
+  plugin-service:
+    build:
+      context: ../../../platform/plugin-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${PLUGIN_SERVICE_PORT:-8088}:8088"
+    environment:
+      - PORT=8088
+      - PLATFORM_ENV=local
+      - PLUGINS_CONFIG_PATH=/etc/config/plugins
+      - CODE_PLUGINS_PATH=/etc/plugins
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+    volumes:
+      - ../../../configuration/plugins:/etc/config/plugins
+      - ../../../integrations/email:/etc/plugins:ro
+    depends_on:
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8088/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Flow Service ────────────────────────────────────────────────────────────
+  # configuration/flows/*.yaml CRUD/enable/disable/publish behind /console/flows.
+  # The read/write API here is separate from docker-compose.yml's
+  # flows-render one-shot step (which does the actual apply-to-Kratos-
+  # config work) — same split as plugin-service vs the one-shot pattern
+  # would be if plugins ever needed to affect Kratos config (they don't).
+  flow-service:
+    build:
+      context: ../../../platform/flow-service
+      dockerfile: Dockerfile
+      target: runtime
+    # Overrides the runtime image's USER 10001:10001 — /api/v1/flows/{id}/
+    # publish writes into the rendered-config volume (owned by whatever
+    # uid config-render's alpine image ran as), same reason
+    # identity-providers-render needs the same override.
+    user: "0:0"
+    ports:
+      - "${FLOW_SERVICE_PORT:-8089}:8089"
+    environment:
+      - PORT=8089
+      - PLATFORM_ENV=local
+      - FLOWS_CONFIG_PATH=/etc/config/flows
+      - RENDERED_KRATOS_CONFIG_PATH=/etc/config/kratos/config/rendered/ory/kratos/config/kratos.yaml
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+    volumes:
+      - ../../../configuration/flows:/etc/config/flows
+      - rendered-config:/etc/config/kratos/config/rendered
+    depends_on:
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8089/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Authorization Service ───────────────────────────────────────────────────
+  # Roles/Policies control-plane abstraction behind /console/roles and
+  # /console/policies — reads/writes real Keto relation tuples directly
+  # (KETO_READ_URL/KETO_WRITE_URL), same as console-api's existing
+  # /api/v1/relation-tuples endpoints. Does not replace Keto or store
+  # tuples of its own; configuration/authorization/roles is just a friendly
+  # name -> (namespace, relation) catalog.
+  authorization-service:
+    build:
+      context: ../../../platform/authorization-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${AUTHORIZATION_SERVICE_PORT:-8090}:8090"
+    environment:
+      - PORT=8090
+      - PLATFORM_ENV=local
+      - ROLES_CONFIG_PATH=/etc/config/authorization/roles
+      - KETO_READ_URL=http://keto:4466
+      - KETO_WRITE_URL=http://keto:4467
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+    volumes:
+      - ../../../configuration/authorization/roles:/etc/config/authorization/roles
+    depends_on:
+      - keto
+      - audit-service
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── App Registry Sync Service ──────────────────────────────────────────────
+  app-registry:
+    build:
+      context: ../../..
+      dockerfile: platform/app-registry/Dockerfile
+      target: runtime
+    ports:
+      - "${APP_REGISTRY_PORT:-8080}:8080"
+    env_file:
+      - ../../../.env
+    environment:
+      - APP_REGISTRY_PORT=8080
+      - PLATFORM_ENV=local
+      - PLATFORM_LOG_LEVEL=info
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - REGISTRY_PATH=/etc/integrations/applications
+      - APP_REGISTRY_SCHEMA_PATH=/app/configuration/schemas/app-registry.schema.json
+      # Every create/update/delete/enable/disable POSTs an audit event
+      # here after succeeding (best-effort).
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+    volumes:
+      # Writable: POST /api/v1/registry/{client_id}/enabled rewrites the
+      # enabled: field of the matching integrations/applications/*.yaml file in
+      # place (registry_loader.set_enabled) — this is the one Python-owned
+      # write path into the registry, per the enable/disable admin feature.
+      - ../../../integrations/applications:/etc/integrations/applications
+    depends_on:
+      hydra:
+        condition: service_started
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Console API (Admin Portal mutations: identities/sessions/clients/perms) ─
+  # Owns every write the NeoBIM console's Admin Portal performs against
+  # Kratos/Hydra/Keto admin APIs (create/disable/enable/delete identity,
+  # session revoke, OAuth2 client CRUD, Keto tuple CRUD as each phase lands)
+  # — the console itself only calls this service, never Kratos/Hydra/Keto
+  # directly for a mutation (read-only console pages still do, see
+  # identity-ui/adapters/admin.ts).
+  console-api:
+    build:
+      context: ../../../platform/console-api
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${CONSOLE_API_PORT:-8086}:8086"
+    environment:
+      - PORT=8086
+      - PLATFORM_ENV=local
+      - PLATFORM_LOG_LEVEL=info
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      # Developer Portal's token tester — Hydra's PUBLIC token endpoint,
+      # a different concern from HYDRA_ADMIN_URL's /admin/clients above.
+      - HYDRA_PUBLIC_URL=http://hydra:4444
+      - KETO_WRITE_URL=http://keto:4467
+      # /console/identity-providers' list/toggle endpoints — writable so the
+      # toggle can actually persist (the identity-providers-render one-shot
+      # step, in docker-compose.yml, mounts the same file read-only).
+      - IDENTITY_PROVIDERS_PATH=/etc/config/identity-providers.yaml
+      # /console/themes' editor — writable so saves persist. identity-ui
+      # mounts the same file too (see its own service block below), and
+      # only picks up a change on restart (load-theme.ts caches it).
+      - THEME_CONFIG_PATH=/etc/config/themes/neobim.yaml
+      # Every identities/sessions/clients/permissions/identity-providers/
+      # theme mutation POSTs an audit event here after succeeding (best-
+      # effort — a failure to record never fails the real mutation).
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+      # /console/identity-providers' real per-provider scope/client_id
+      # display (never client_secret) — read-only, same shared volume
+      # kratos/hydra/oathkeeper already mount for their own rendered config.
+      - KRATOS_RENDERED_CONFIG_PATH=/etc/config/kratos-rendered/ory/kratos/config/kratos.yaml
+    volumes:
+      - ../../../configuration/identity-providers.yaml:/etc/config/identity-providers.yaml
+      # Whole directory (not just neobim.yaml) — theme.py's version history
+      # (configuration/themes/history/*.yaml) needs a real writable directory, not
+      # the single-file bind mount Docker would otherwise synthesize.
+      - ../../../configuration/themes:/etc/config/themes
+      - rendered-config:/etc/config/kratos-rendered:ro
+    user: "0:0"
+    depends_on:
+      kratos:
+        condition: service_started
+      hydra:
+        condition: service_started
+      keto:
+        condition: service_started
+      audit-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8086/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Auth Orchestrator (Hydra login/consent/logout <-> Kratos sessions) ────
+  auth-service:
+    build:
+      context: ../../../platform/auth-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${AUTH_SERVICE_PORT:-8083}:8083"
+    environment:
+      - AUTH_SERVICE_PORT=8083
+      - PLATFORM_ENV=local
+      - PLATFORM_LOG_LEVEL=info
+      - PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-http://localhost:4455}
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - OTEL_ENABLED=false
+    depends_on:
+      kratos:
+        condition: service_started
+      hydra:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Notification Service ───────────────────────────────────────────────────
+  notification-service:
+    build:
+      context: ../../../platform/notification-service
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8085}:8085"
+    environment:
+      - NOTIFICATION_SERVICE_PORT=8085
+      - PLATFORM_ENV=local
+      - PLATFORM_LOG_LEVEL=info
+      - EMAIL_SERVICE_URL=http://email-service:8084/send
+      - OTEL_ENABLED=false
+      # /console/notifications' template editor — the same real files
+      # Kratos's own courier reads via kratos.yaml.tmpl's
+      # file:///etc/config/kratos/email-templates/... paths.
+      - EMAIL_TEMPLATES_PATH=/etc/config/kratos/email-templates
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+    volumes:
+      - ../../../ory/kratos/email-templates:/etc/config/kratos/email-templates
+    depends_on:
+      - email-service
+      - audit-service
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Email Service ──────────────────────────────────────────────────────────
+  # Build context is the repo root because this service depends on the local
+  # platform/plugin-framework package and on plugins/ (see its Dockerfile).
+  email-service:
+    build:
+      context: ../../..
+      dockerfile: platform/email-service/Dockerfile
+      target: runtime
+    ports:
+      - "${EMAIL_SERVICE_PORT:-8084}:8084"
+    environment:
+      - EMAIL_SERVICE_PORT=8084
+      - PLATFORM_ENV=local
+      - PLATFORM_LOG_LEVEL=info
+      - EMAIL_PROVIDER=smtp
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_FROM_ADDRESS=noreply@platform.local
+      - SMTP_FROM_NAME=Identity Platform
+      - OTEL_ENABLED=false
+    depends_on:
+      - mailhog
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── UI plugin: official Kratos self-service UI ───────────────────────────
+  # Kept as the documented rollback path to the pre-NeoBIM UI (see
+  # identity-ui/ for the real, NeoBIM-branded UI). Remove this block +
+  # auth-ui-rules to run without it.
+  auth-ui:
+    build:
+      context: ../../../vendor/kratos-selfservice-ui-reference
+      dockerfile: Dockerfile
+    ports:
+      - "${AUTH_UI_PORT:-3000}:3000"
+    env_file:
+      - ../../../.env
+    environment:
+      - PORT=3000
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_BROWSER_URL=${PLATFORM_BASE_URL:-http://localhost:4455}/.ory/kratos/public
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - CSRF_COOKIE_NAME=auth-ui-csrf-token
+      - DANGEROUSLY_DISABLE_SECURE_CSRF_COOKIES=true
+      - REMEMBER_CONSENT_SESSION_FOR_SECONDS=3600
+    depends_on:
+      kratos:
+        condition: service_started
+      hydra:
+        condition: service_started
+    healthcheck:
+      # This is the Node-based upstream UI image, not one of our Python
+      # services — it has no python3 binary at all (confirmed live: "exec:
+      # python3: executable file not found"), so it always reported
+      # unhealthy despite serving every request correctly. Use node itself.
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health/ready', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── NeoBIM Identity Platform UI (identity-ui/) ────────────────────────────
+  # Lives at repo root, not under applications/ — this IS the identity
+  # platform's own UI (User Portal + Admin Portal), not a business
+  # application; applications/ is reserved for actual consumer apps (mealie,
+  # superset, neobim-ui, ...). Renders the same Kratos/Hydra flows as
+  # auth-ui above, using NeoBIM-derived components instead of Ory Elements.
+  # Both services can run at once (see auth-ui-rules / identity-ui-rules in
+  # ory/oathkeeper/rules/access-rules.json) — which one is "default" is an
+  # Oathkeeper routing decision, not a question of which container is
+  # running. Remove this block + identity-ui-rules to run without it.
+  identity-ui:
+    build:
+      context: ../../..
+      dockerfile: identity-ui/Dockerfile
+      additional_contexts:
+        # Same real, live fix as docker-compose.applications.yml's neobim-ui
+        # service: the sibling ui/ repo no longer nests under packages/ui.
+        uipkg: ../../../../ui
+    ports:
+      - "${IDENTITY_UI_PORT:-3010}:3000"
+    environment:
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_BROWSER_URL=${PLATFORM_BASE_URL:-http://localhost:4455}/.ory/kratos/public
+      # Admin APIs for /console/* — server-side only (adapters/admin.ts),
+      # never proxied to the browser.
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - KETO_READ_URL=http://keto:4466
+      # /console/applications' enable/disable action calls this instead of
+      # touching Hydra or integrations/applications/*.yaml directly (see app-registry
+      # service above).
+      - APP_REGISTRY_URL=http://app-registry:8080
+      # Every other /console/* mutation (identities/sessions/clients/perms)
+      # calls this instead of Kratos/Hydra/Keto's admin APIs directly (see
+      # console-api service above).
+      - CONSOLE_API_URL=http://console-api:8086
+      # /console/audit reads directly from audit-service (read-only;
+      # console-api is the writer).
+      - AUDIT_SERVICE_URL=http://audit-service:8087
+      # /console/plugins' list/create/enable/disable/delete forms.
+      - PLUGIN_SERVICE_URL=http://plugin-service:8088
+      # /console/flows' list/create/edit/enable/disable/publish forms.
+      - FLOW_SERVICE_URL=http://flow-service:8089
+      # /console/notifications' template editor + test-send.
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8085
+      # /console/roles and /console/policies.
+      - AUTHORIZATION_SERVICE_URL=http://authorization-service:8090
+      # /setup's first-admin bootstrap (POST /admin/bootstrap) — the one
+      # browser-only path to claim platform-admin with zero admins yet.
+      - HOOKS_SERVICE_URL=http://hooks-service:8082
+      # Dashboard's own real service-health check for Oathkeeper.
+      - OATHKEEPER_ADMIN_URL=http://oathkeeper:4456
+      # Browser-facing origin, for the Developer Portal's Authorization
+      # Code + PKCE playground's redirect_uri (must be absolute — Hydra
+      # requires an exact pre-registered match, not a relative path).
+      - PUBLIC_BASE_URL=http://localhost:4455
+      # Organizations page reads/creates tenants directly from the existing
+      # tenant-service (its own real Python backend, not a new proxy).
+      - TENANT_SERVICE_URL=http://tenant-service:8081
+      - THEME_CONFIG_PATH=/configuration/themes/neobim.yaml
+      # app/api/admin-email-check/route.ts's isAdminEmail() check — UI
+      # emphasis only (which login methods the staged login-flow.tsx
+      # component highlights after Continue), never an actual auth/authz
+      # decision, so it's fine for this to be a plain comma-separated list
+      # read server-side by a trivial, side-effect-free route handler.
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+      # middleware.ts's admin-console gate — was a hardcoded "platform"
+      # literal, now configurable (still defaults to the same real,
+      # populated Organization#admin object id).
+      - PLATFORM_ORGANIZATION_ID=${PLATFORM_ORGANIZATION_ID:-platform}
+      # Next's standalone server.js binds to $HOSTNAME if set, and Docker
+      # sets HOSTNAME to the container ID automatically — without this
+      # override the server only listens on that specific address, not
+      # 127.0.0.1, so the healthcheck below (and anything else using
+      # "localhost" from inside the container) gets ECONNREFUSED even
+      # though host port-forwarding (which hits the container's real IP
+      # directly) works fine. Confirmed live.
+      - HOSTNAME=0.0.0.0
+    volumes:
+      - ../../../configuration/themes:/configuration/themes:ro
+    depends_on:
+      kratos:
+        condition: service_started
+      hydra:
+        condition: service_started
+      app-registry:
+        condition: service_started
+      console-api:
+        condition: service_started
+      tenant-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+      plugin-service:
+        condition: service_started
+      authorization-service:
+        condition: service_started
+      flow-service:
+        condition: service_started
+    healthcheck:
+      # next.config.ts's basePath means the app only responds under /auth/*
+      # now — bare "/" 404s (confirmed live, this healthcheck itself caught
+      # nothing before because it happened to accept 307 as "healthy" too).
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/auth/', r => process.exit([200,307,308].includes(r.statusCode) ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

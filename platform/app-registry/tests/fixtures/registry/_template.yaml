@@ -1,0 +1,8 @@
+client_id: example-app
+client_name: Example Application
+redirect_uris:
+  - http://localhost:4455/auth/callback
+grant_types:
+  - authorization_code
+scope: openid
+enabled: false

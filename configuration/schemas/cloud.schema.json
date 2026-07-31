@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cloud Provider Configuration",
+  "type": "object",
+  "properties": {
+    "cloud": {
+      "type": "string",
+      "enum": ["aws", "gcp", "azure", "local"]
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "aws": {
+          "type": "object",
+          "properties": {
+            "region": { "type": "string" },
+            "secondary_region": { "type": "string" },
+            "account_id": { "type": "string" },
+            "vpc_id": { "type": "string" },
+            "secrets_arn_prefix": { "type": "string" },
+            "rds_endpoint": { "type": "string" },
+            "elasticache_endpoint": { "type": "string" },
+            "s3_bucket": { "type": "string" },
+            "s3_region": { "type": "string" },
+            "ecr_registry": { "type": "string" }
+          },
+          "required": ["region", "account_id", "vpc_id", "s3_bucket"]
+        },
+        "gcp": {
+          "type": "object",
+          "properties": {
+            "project_id": { "type": "string" },
+            "region": { "type": "string" },
+            "secondary_region": { "type": "string" },
+            "secret_prefix": { "type": "string" },
+            "cloud_sql_connection_name": { "type": "string" },
+            "memorystore_host": { "type": "string" },
+            "gcs_bucket": { "type": "string" },
+            "artifact_registry": { "type": "string" }
+          },
+          "required": ["project_id", "region", "gcs_bucket"]
+        },
+        "local": {
+          "type": "object",
+          "properties": {
+            "postgres_host": { "type": "string" },
+            "redis_host": { "type": "string" },
+            "storage_path": { "type": "string" },
+            "secrets_path": { "type": "string" }
+          },
+          "required": ["postgres_host", "redis_host"]
+        }
+      },
+      "required": ["aws", "gcp", "local"]
+    }
+  },
+  "required": ["cloud", "providers"]
+}

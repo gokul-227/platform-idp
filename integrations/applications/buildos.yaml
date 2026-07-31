@@ -1,0 +1,42 @@
+# NeoBIM "BuildOS" (Spark OS) — real OIDC client of this platform's Hydra.
+# buildos's apps/platform uses the generic @aec-craft/platform-auth-nextjs
+# adapter (createPlatformAuth in lib/platform-auth.ts) — it's fully protocol-
+# generic (issuer/clientId/clientSecret/redirectUri/scopes/audience, all from
+# env), not coupled to any specific IdP implementation, so pointing it at this
+# Hydra instance instead of NeoBIM Platform's own issuer required ZERO buildos
+# source changes — only apps/platform/.env.local (git-ignored, local-only).
+#
+# redirect_uris below use port 3000 — buildos's apps/platform/package.json
+# `dev` script hardcodes `next dev --turbopack --port 3000`; its .env.local
+# had drifted to claim port 3001 (a pre-existing internal inconsistency,
+# unrelated to this integration), which also happened to collide with this
+# repo's own Grafana (published on host port 3001). Corrected .env.local's
+# AUTH_REDIRECT_URI to match the real port instead of picking a third port.
+#
+# The adapter also sends an RFC 8707 `resource` indicator (bound to
+# PLATFORM_API_URL) on both the authorize and token requests, requesting the
+# access token be a verifiable JWT scoped to that audience. Hydra's
+# `audience` client field must list that same value or the request is
+# rejected — this can't be set via this registry's schema (no `audience`
+# field), so it's set with one follow-up manual
+# `PUT /admin/clients/buildos` after every sync (see
+# docs/07-applications/platform-and-buildos-integration.md for the exact
+# command). BuildOS's own Convex backend has no auth/session verification
+# wired to this token yet (an explicit, disclosed gap in buildos's own
+# CLAUDE.md) — this integration covers real login/session end-to-end, not a
+# downstream API call using the resulting token.
+client_id: buildos
+client_name: NeoBIM BuildOS (Spark OS)
+redirect_uris:
+  - http://localhost:3000/auth/callback
+post_logout_redirect_uris:
+  - http://localhost:3000/
+grant_types:
+  - authorization_code
+  - refresh_token
+scope: openid profile email offline_access
+client_secret_env_var: BUILDOS_OIDC_CLIENT_SECRET
+token_endpoint_auth_method: client_secret_post
+enabled: true
+tenant_id: default
+tags: [application-plugin, neobim, integrated]

@@ -1,0 +1,435 @@
+# =============================================================================
+# Ory Kratos — Production Configuration
+# =============================================================================
+# Complete self-service identity system configuration.
+# Supports: passwords, passkeys, magic links, TOTP, social login,
+#           email verification, account recovery, profile management.
+#
+# Documentation: https://www.ory.sh/docs/kratos/reference/configuration
+# =============================================================================
+
+version: v1.2.0
+
+# ─── Service Identity ─────────────────────────────────────────────────────────
+serve:
+  public:
+    # Must equal the externally-reachable URL browsers actually use (via
+    # Oathkeeper), not kratos's own container-internal address — Kratos ties
+    # CSRF and self-referencing links to this value. Rendered from
+    # PLATFORM_BASE_URL/AUTH_UI_BASE_URL/APP_REGISTRY_BASE_URL by the
+    # config-render init container (these Ory YAML files don't expand ${VAR}
+    # natively — see docs/10-reference/adr/ADR-0013-container-first-development.md).
+    base_url: ${PLATFORM_BASE_URL}/.ory/kratos/public/
+    cors:
+      enabled: true
+      allowed_origins:
+        - ${AUTH_UI_BASE_URL}        # Auth UI
+        - ${PLATFORM_BASE_URL}       # Oathkeeper Proxy
+        - ${APP_REGISTRY_BASE_URL}   # App Registry Service
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - X-Session-Token
+        - X-CSRF-Token
+        - X-Correlation-ID
+      exposed_headers:
+        - Content-Type
+        - Set-Cookie
+      allow_credentials: true
+      debug: false
+  admin:
+    base_url: http://kratos-admin:4434/
+    # Admin API should NEVER be exposed to the internet
+    # Only accessible within the cluster/docker network
+
+# ─── Hydra integration ─────────────────────────────────────────────────────────
+# Required for /self-service/login|registration/browser?login_challenge=... —
+# without it Kratos 500s with "refusing to parse login_challenge query
+# parameter because oauth2_provider.url is invalid or unset" on every FRESH
+# (non-remembered) Hydra-initiated login. A login where Kratos already had a
+# session cookie never hits this path (auth-service's /hydra/login skip
+# branch handles it directly), which is why this went unnoticed until a
+# brand-new browser/cookie-jar drove a Hydra client's login end-to-end.
+oauth2_provider:
+  url: http://hydra:4445
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+dsn: ${KRATOS_DATABASE_URL}
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# WARNING: These MUST be at least 16 characters (32+ recommended)
+# Generate with: openssl rand -base64 32
+secrets:
+  cookie:
+    - ${KRATOS_SECRETS_COOKIE}
+  cipher:
+    - ${KRATOS_SECRETS_CIPHER}
+
+# ─── Identity Schema ──────────────────────────────────────────────────────────
+identity:
+  default_schema_id: enterprise_user
+  schemas:
+    - id: enterprise_user
+      url: file:///etc/config/kratos/identity-schemas/enterprise-user.schema.json
+    - id: service_account
+      url: file:///etc/config/kratos/identity-schemas/service-account.schema.json
+    - id: organization_admin
+      url: file:///etc/config/kratos/identity-schemas/organization-admin.schema.json
+
+# ─── Self-Service Flows ───────────────────────────────────────────────────────
+selfservice:
+  # Default redirect after successful flows. NOT the bare "/" — Oathkeeper
+  # has no access rule for the platform root (only /auth/<**>, /oauth2/<**>,
+  # etc. — see ory/oathkeeper/rules/access-rules.json), so a bare "/" here
+  # 404s immediately after a real user's first successful registration.
+  # Confirmed live: registration actually succeeds (identity created), then
+  # the final browser redirect to "${PLATFORM_BASE_URL}/" 404s, making a
+  # working signup look broken.
+  # NOT /auth/login either — registration's `hook: session` logs the user
+  # in immediately, so an already-authenticated browser hitting /auth/login
+  # triggers Kratos's own "already logged in" redirect straight back to
+  # this same default_browser_return_url, an infinite 2-hop loop (confirmed
+  # live). /auth/settings is safe: it assumes an active session instead of
+  # trying to start a new login, so it renders instead of redirecting again.
+  default_browser_return_url: ${PLATFORM_BASE_URL}/auth/settings
+
+  # Allowed return_to URLs (SSRF protection)
+  allowed_return_urls:
+    - ${PLATFORM_BASE_URL}
+    - ${AUTH_UI_BASE_URL}
+    - ${APP_REGISTRY_BASE_URL}
+
+  methods:
+    # ── Password ──────────────────────────────────────────────────────────────
+    password:
+      enabled: true
+      config:
+        # Argon2id is Kratos's default hasher — there is no valid
+        # `hasher` key under this method's config to select it explicitly
+        # (schema rejects it as an unknown property).
+        # Haveibeenpwned.com integration for compromised password detection
+        haveibeenpwned_enabled: true
+        max_breaches: 0         # 0 = reject any password found in breach DB
+        ignore_network_errors: true
+        min_password_length: 8
+        identifier_similarity_check_enabled: true
+
+    # ── OIDC (Social Login) ───────────────────────────────────────────────────
+    oidc:
+      enabled: true
+      config:
+        providers:
+          # Google
+          - id: google
+            provider: google
+            label: "Google"
+            client_id: ${SOCIAL_GOOGLE_CLIENT_ID}
+            client_secret: ${SOCIAL_GOOGLE_CLIENT_SECRET}
+            mapper_url: file:///etc/config/kratos/mappers/google.jsonnet
+            scope:
+              - email
+              - profile
+              - openid
+            requested_claims:
+              id_token:
+                email:
+                  essential: true
+                email_verified:
+                  essential: true
+                name: null
+                given_name: null
+                family_name: null
+                picture: null
+
+          # Microsoft (Supports both personal and work accounts via "common" tenant)
+          - id: microsoft
+            provider: microsoft
+            label: "Microsoft"
+            client_id: ${SOCIAL_MICROSOFT_CLIENT_ID}
+            client_secret: ${SOCIAL_MICROSOFT_CLIENT_SECRET}
+            microsoft_tenant: ${SOCIAL_MICROSOFT_TENANT}
+            mapper_url: file:///etc/config/kratos/mappers/microsoft.jsonnet
+            scope:
+              - openid
+              - profile
+              - email
+              - offline_access
+
+    # ── Passkeys (WebAuthn Passwordless) ──────────────────────────────────────
+    passkey:
+      enabled: true
+      config:
+        rp:
+          display_name: "Identity Platform"
+          id: localhost            # Replace with your domain in production
+          origins:
+            - ${AUTH_UI_BASE_URL}
+            - ${PLATFORM_BASE_URL}
+
+    # ── WebAuthn (Security Keys / Hardware Tokens as MFA) ─────────────────────
+    webauthn:
+      enabled: true
+      config:
+        rp:
+          display_name: "Identity Platform"
+          id: localhost
+          origins:
+            - ${AUTH_UI_BASE_URL}
+            - ${PLATFORM_BASE_URL}
+        passwordless: false        # Passkeys handles passwordless; this is MFA-only
+
+    # ── TOTP (Time-Based One-Time Passwords) ──────────────────────────────────
+    totp:
+      enabled: true
+      config:
+        issuer: "Identity Platform"
+
+    # ── Lookup Secrets (Backup Codes) ─────────────────────────────────────────
+    lookup_secret:
+      enabled: true
+
+    # ── Magic Link (Code-based Passwordless) ──────────────────────────────────
+    code:
+      enabled: true
+      config:
+        # Magic link codes expire after 15 minutes
+        lifespan: 15m
+        # How long an address can be unverified before the code expires
+        missing_credential_fallback_enabled: true
+        # Without this, `code` never appears as a LOGIN method — only as the
+        # registration/recovery/verification email-code flow. Confirmed
+        # live: a fresh login flow's ui.nodes had zero "code"-group nodes
+        # with this key absent, even though the enterprise-user schema
+        # already marks traits.email's `code.identifier: true` (via email).
+        # This is what makes "sign in with an emailed one-time code" a real,
+        # selectable login method rather than just a registration-time
+        # verification mechanic.
+        passwordless_enabled: true
+
+    # ── Link (Legacy email verification link) ─────────────────────────────────
+    link:
+      enabled: true
+      config:
+        lifespan: 1h
+
+  # ─── Self-Service Flows ─────────────────────────────────────────────────────
+  flows:
+    # ── Registration ──────────────────────────────────────────────────────────
+    registration:
+      # Self-registration is OFF by default across every environment (one
+      # shared config file, no per-environment override) — set
+      # SELF_REGISTRATION_ENABLED=true in .env to turn it back on. The
+      # flow/page/code itself is untouched (identity-ui/app/(flows)/registration/
+      # still exists and renders) — this only stops Kratos from actually
+      # minting new registration flows. When disabled, Kratos's own
+      # self-service init endpoint responds with a real error instead of a
+      # flow (identity-ui's registration page catches that and shows a
+      # clean "contact an administrator" message — see
+      # identity-ui/app/(flows)/registration/page.tsx).
+      enabled: ${SELF_REGISTRATION_ENABLED}
+      lifespan: 10m
+      ui_url: ${PLATFORM_BASE_URL}/auth/registration
+      after:
+        # `show_verification_ui` is Kratos's own built-in hook for exactly
+        # this gap: without it, `hook: session` auto-logs a freshly
+        # registered identity in with NOTHING routing them to verify their
+        # email — they land on an ordinary authenticated page with no
+        # indication verification is needed at all (confirmed live: this is
+        # the actual root cause of "entering the OTP in Account Settings
+        # doesn't work" — Settings was never the right page; the real
+        # verification page was reachable, just never linked to). This hook
+        # creates a verification flow for the identity's unverified address
+        # and redirects the browser straight to it after registration.
+        password:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/registration
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+                body: file:///etc/config/kratos/hooks/registration.jsonnet
+        oidc:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/registration
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+                body: file:///etc/config/kratos/hooks/registration.jsonnet
+        code:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+
+    # ── Login ─────────────────────────────────────────────────────────────────
+    login:
+      lifespan: 10m
+      ui_url: ${PLATFORM_BASE_URL}/auth/login
+      after:
+        password:
+          hooks:
+            - hook: require_verified_address
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/login
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+                body: file:///etc/config/kratos/hooks/login.jsonnet
+        oidc:
+          hooks:
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/login
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+                body: file:///etc/config/kratos/hooks/login.jsonnet
+
+    # ── Logout ────────────────────────────────────────────────────────────────
+    logout:
+      after:
+        # Same fix as the global default_browser_return_url above — a bare
+        # "/" has no Oathkeeper route and 404s after logout.
+        default_browser_return_url: ${PLATFORM_BASE_URL}/auth/login
+
+    # ── Account Settings ──────────────────────────────────────────────────────
+    settings:
+      lifespan: 15m
+      ui_url: ${PLATFORM_BASE_URL}/auth/settings
+      # Require re-authentication for sensitive changes
+      privileged_session_max_age: 15m
+      required_aal: highest_available
+      after:
+        password:
+          hooks:
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/password-changed
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+        profile:
+          hooks:
+            - hook: web_hook
+              config:
+                url: http://hooks-service:8082/webhooks/profile-updated
+                method: POST
+                response:
+                  ignore: true
+                  parse: false
+
+    # ── Account Recovery ──────────────────────────────────────────────────────
+    recovery:
+      enabled: true
+      lifespan: 15m
+      ui_url: ${PLATFORM_BASE_URL}/auth/recovery
+      use: code       # 'code' = magic link style; 'link' = email link
+      after:
+        hooks:
+          - hook: revoke_active_sessions    # Revoke all sessions on recovery
+
+    # ── Email Verification ────────────────────────────────────────────────────
+    verification:
+      enabled: true
+      lifespan: 1h
+      ui_url: ${PLATFORM_BASE_URL}/auth/verification
+      use: code
+      after:
+        hooks: []
+
+# ─── Session Configuration ────────────────────────────────────────────────────
+session:
+  lifespan: 720h         # 30 days
+  cookie:
+    name: ory_kratos_session
+    domain: localhost
+    path: /
+    same_site: Lax
+    persistent: true     # Respect 'remember me'
+  # Idle session timeout — revoke if no activity
+  whoami:
+    required_aal: aal1
+
+# ─── Email Courier ────────────────────────────────────────────────────────────
+courier:
+  smtp:
+    connection_uri: ${KRATOS_COURIER_SMTP_URL}
+    from_address: ${SMTP_FROM_ADDRESS}
+    from_name: ${SMTP_FROM_NAME}
+    headers: {}
+  templates:
+    recovery:
+      invalid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email-templates/recovery/invalid.html.gotmpl
+            plaintext: file:///etc/config/kratos/email-templates/recovery/invalid.plaintext.gotmpl
+          subject: file:///etc/config/kratos/email-templates/recovery/invalid.subject.gotmpl
+      valid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email-templates/recovery/valid.html.gotmpl
+            plaintext: file:///etc/config/kratos/email-templates/recovery/valid.plaintext.gotmpl
+          subject: file:///etc/config/kratos/email-templates/recovery/valid.subject.gotmpl
+    verification:
+      invalid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email-templates/verification/invalid.html.gotmpl
+            plaintext: file:///etc/config/kratos/email-templates/verification/invalid.plaintext.gotmpl
+          subject: file:///etc/config/kratos/email-templates/verification/invalid.subject.gotmpl
+      valid:
+        email:
+          body:
+            html: file:///etc/config/kratos/email-templates/verification/valid.html.gotmpl
+            plaintext: file:///etc/config/kratos/email-templates/verification/valid.plaintext.gotmpl
+          subject: file:///etc/config/kratos/email-templates/verification/valid.subject.gotmpl
+    # NOTE: courier.templates only accepts recovery/verification in this
+    # Kratos version — "login"/"registration" here fail schema validation
+    # ("additionalProperties ... not allowed") and were removed. The
+    # ory/kratos/email-templates/{login,registration}/ files are currently
+    # unused as a result; login/registration codes send via Kratos's built-in
+    # default templates until this is revisited (see docs/10-reference/ai-handoff.md).
+
+# ─── Observability ────────────────────────────────────────────────────────────
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false    # NEVER true in production
+
+tracing:
+  provider: otel
+  providers:
+    otlp:
+      insecure: true
+      sampling:
+        sampling_ratio: 0.1
+      # This Kratos version does not expand ${VAR} here — hardcoded, matching
+      # ory/keto/config/keto.yaml's identical fix.
+      # Scheme-less host:port — the schema rejects a URI here. 4318 = the
+      # collector's OTLP/HTTP receiver: Ory's exporters speak OTLP-over-HTTP,
+      # so pointing at the gRPC port (4317) silently delivers nothing (both
+      # found live during the first observability bring-up, AI_HANDOFF §1.13).
+      server_url: otel-collector:4318
+
+# ─── Development ──────────────────────────────────────────────────────────────
+dev: false

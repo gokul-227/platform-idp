@@ -1,0 +1,5 @@
+id: resource-owner
+name: Resource Owner
+namespace: Resource
+relation: owner
+description: Full control over a resource.

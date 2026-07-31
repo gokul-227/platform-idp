@@ -1,0 +1,5 @@
+id: team-manager
+name: Team Manager
+namespace: Team
+relation: manager
+description: Administer a team.

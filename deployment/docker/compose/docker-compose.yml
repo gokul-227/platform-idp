@@ -1,0 +1,343 @@
+version: '3.8'
+
+services:
+  # ─── Isolated Databases ─────────────────────────────────────────────────────
+  postgres-kratos:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kratos
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: ${POSTGRES_KRATOS_PASSWORD}
+    ports:
+      - "${POSTGRES_KRATOS_PORT:-5432}:5432"
+    volumes:
+      - pgdata-kratos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-hydra:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hydra
+      POSTGRES_USER: hydra
+      POSTGRES_PASSWORD: ${POSTGRES_HYDRA_PASSWORD}
+    ports:
+      - "${POSTGRES_HYDRA_PORT:-5433}:5432"
+    volumes:
+      - pgdata-hydra:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hydra"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-keto:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: keto
+      POSTGRES_USER: keto
+      POSTGRES_PASSWORD: ${POSTGRES_KETO_PASSWORD}
+    ports:
+      - "${POSTGRES_KETO_PORT:-5434}:5432"
+    volumes:
+      - pgdata-keto:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keto"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-platform:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PLATFORM_PASSWORD}
+    ports:
+      - "${POSTGRES_PLATFORM_PORT:-5435}:5432"
+    volumes:
+      - pgdata-platform:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis Cache ────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Mail Server Mock ────────────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "${SMTP_PORT:-1025}:1025" # smtp
+      - "${MAILHOG_WEB_PORT:-8025}:8025" # web ui
+
+  # ─── Config Renderer ─────────────────────────────────────────────────────────
+  # Kratos/Hydra/Oathkeeper don't expand ${VAR} in their own YAML — this
+  # renders their *.yaml.tmpl (browser-facing URLs only) with envsubst into
+  # a shared volume before those services start. See
+  # docker/configs/config-render.Dockerfile and docs/10-reference/adr/ADR-0013.
+  config-render:
+    build:
+      context: ../../..
+      dockerfile: deployment/docker/configs/config-render.Dockerfile
+    environment:
+      - PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-http://localhost:4455}
+      - AUTH_UI_BASE_URL=${AUTH_UI_BASE_URL:-http://localhost:3000}
+      - APP_REGISTRY_BASE_URL=${APP_REGISTRY_BASE_URL:-http://localhost:8080}
+      # Real OIDC provider credentials for kratos.yaml.tmpl's 2 social
+      # login providers (google/microsoft) — previously missing from this
+      # container's own environment entirely, so config-render-entrypoint.sh's
+      # envsubst had nothing to substitute even after that script's own
+      # allowlist was fixed to include these var names. Both halves were
+      # needed. (github/gitlab/apple provider blocks and their credentials
+      # were removed — backend no longer offers those providers at all.)
+      - SOCIAL_GOOGLE_CLIENT_ID=${SOCIAL_GOOGLE_CLIENT_ID:-}
+      - SOCIAL_GOOGLE_CLIENT_SECRET=${SOCIAL_GOOGLE_CLIENT_SECRET:-}
+      - SOCIAL_MICROSOFT_CLIENT_ID=${SOCIAL_MICROSOFT_CLIENT_ID:-}
+      - SOCIAL_MICROSOFT_CLIENT_SECRET=${SOCIAL_MICROSOFT_CLIENT_SECRET:-}
+      - SOCIAL_MICROSOFT_TENANT=${SOCIAL_MICROSOFT_TENANT:-common}
+      # Off by default across every environment — kratos.yaml.tmpl's
+      # registration.enabled reads this directly. Set to "true" in .env to
+      # let Kratos mint new registration flows again.
+      - SELF_REGISTRATION_ENABLED=${SELF_REGISTRATION_ENABLED:-false}
+    volumes:
+      - ../../../ory:/templates/ory:ro
+      - rendered-config:/rendered
+
+  # ─── Identity Providers apply step ──────────────────────────────────────────
+  # config-render's envsubst pass can't do conditional logic (no way to
+  # drop a disabled provider from the rendered providers list) — this
+  # one-shot step runs after it and filters
+  # rendered/ory/kratos/config/kratos.yaml's OIDC providers down to what
+  # configuration/identity-providers.yaml marks enabled, using the same console-api
+  # image (platform/console-api/src/console_api/apply_identity_providers.py)
+  # that also serves the console's Identity Providers page's read/toggle
+  # endpoints. Toggling a provider via the console only edits
+  # configuration/identity-providers.yaml — it does NOT restart Kratos (no
+  # runtime config-reload API in the OSS edition); a change here only takes
+  # effect on the next `make restart` (which reruns this step).
+  identity-providers-render:
+    build:
+      context: ../../../platform/console-api
+      dockerfile: Dockerfile
+      target: runtime
+    # Overrides the runtime image's USER 10001:10001 — that user can't
+    # write into rendered-config (owned by whatever uid config-render's
+    # alpine image ran as, effectively root). Narrowly scoped to this
+    # one-shot init step; the long-running console-api service keeps the
+    # unprivileged user.
+    user: "0:0"
+    entrypoint: ["python", "-m", "console_api.apply_identity_providers"]
+    environment:
+      - IDENTITY_PROVIDERS_PATH=/etc/config/identity-providers.yaml
+      - RENDERED_KRATOS_CONFIG_PATH=/etc/config/kratos/config/rendered/ory/kratos/config/kratos.yaml
+    volumes:
+      - ../../../configuration/identity-providers.yaml:/etc/config/identity-providers.yaml:ro
+      - rendered-config:/etc/config/kratos/config/rendered
+    depends_on:
+      config-render:
+        condition: service_completed_successfully
+
+  # ─── Authentication flows apply step ────────────────────────────────────────
+  # Same one-shot pattern as identity-providers-render, using the
+  # platform/flow-service image instead — applies every ENABLED flow's
+  # steps as `selfservice.methods.<m>.enabled: true` in the rendered
+  # kratos.yaml. Deliberately enable-only (see
+  # platform/flow-service/README.md) — never disables a method just
+  # because no flow references it, to avoid silently breaking an
+  # unrelated flow. Runs after identity-providers-render so both one-shot
+  # config mutations land before Kratos reads the file.
+  flows-render:
+    build:
+      context: ../../../platform/flow-service
+      dockerfile: Dockerfile
+      target: runtime
+    user: "0:0"
+    entrypoint: ["python", "-m", "flow_service.apply_flows"]
+    environment:
+      - FLOWS_CONFIG_PATH=/etc/config/flows
+      - RENDERED_KRATOS_CONFIG_PATH=/etc/config/kratos/config/rendered/ory/kratos/config/kratos.yaml
+    volumes:
+      - ../../../configuration/flows:/etc/config/flows:ro
+      - rendered-config:/etc/config/kratos/config/rendered
+    depends_on:
+      identity-providers-render:
+        condition: service_completed_successfully
+
+  # ─── Ory Kratos Identity Service ────────────────────────────────────────────
+  kratos-migrate:
+    image: oryd/kratos:v1.2.0
+    environment:
+      - DSN=postgres://kratos:${POSTGRES_KRATOS_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable
+    volumes:
+      - ../../../ory/kratos:/etc/config/kratos
+      - rendered-config:/etc/config/kratos/config/rendered
+    command: -c /etc/config/kratos/config/rendered/ory/kratos/config/kratos.yaml migrate sql -e -y
+    depends_on:
+      postgres-kratos:
+        condition: service_healthy
+      config-render:
+        condition: service_completed_successfully
+
+  kratos:
+    image: oryd/kratos:v1.2.0
+    ports:
+      - "${KRATOS_PUBLIC_PORT:-4433}:4433" # public
+      - "${KRATOS_ADMIN_PORT:-4434}:4434" # admin
+    environment:
+      - DSN=postgres://kratos:${POSTGRES_KRATOS_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable
+      - KRATOS_DATABASE_URL=postgres://kratos:${POSTGRES_KRATOS_PASSWORD}@postgres-kratos:5432/kratos?sslmode=disable
+      # This Kratos version does not expand ${VAR} inside kratos.yaml (see
+      # that file's secrets/courier comments) — these native env vars are
+      # Ory's documented config-override mechanism (Viper automatic env
+      # binding: config key `secrets.cookie` -> env var `SECRETS_COOKIE`,
+      # etc.) and take priority over the (non-functional) YAML placeholders.
+      - SECRETS_COOKIE=${KRATOS_SECRETS_COOKIE:-CHANGE_ME_32_BYTES_BASE64_ENCODED_SECRET_HERE}
+      - SECRETS_CIPHER=${KRATOS_SECRETS_CIPHER:-CHANGE_ME_32_BYTES_BASE64_ENCODED_CIPHER_SECRET}
+      # No credentials in the URI — go-mail refuses to send AUTH over a
+      # plaintext connection even with disable_starttls=true, and Mailhog
+      # doesn't require auth anyway.
+      - COURIER_SMTP_CONNECTION_URI=smtp://mailhog:1025/?disable_starttls=true
+      - COURIER_SMTP_FROM_ADDRESS=noreply@platform.local
+      - COURIER_SMTP_FROM_NAME=Identity Platform
+      - OTEL_ENDPOINT=http://otel-collector:4317
+    volumes:
+      - ../../../ory/kratos:/etc/config/kratos
+      - rendered-config:/etc/config/kratos/config/rendered
+    # --dev: this compose stack terminates no TLS anywhere. Without it,
+    # Kratos marks its anti-CSRF cookie `Secure`, which a real browser (not
+    # curl, which doesn't enforce this) silently refuses to send back over
+    # plain HTTP — every /auth/registration or /auth/login visit then loops
+    # forever between auth-ui and Kratos's own flow-init endpoint, since
+    # auth-ui's server-side flow fetch keeps failing CSRF validation.
+    # Confirmed live. A TLS-terminated deployment (production K8s) must
+    # drop this flag, matching Hydra's identical --dev flag above.
+    command: -c /etc/config/kratos/config/rendered/ory/kratos/config/kratos.yaml serve --dev --watch-courier
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+      identity-providers-render:
+        condition: service_completed_successfully
+      flows-render:
+        condition: service_completed_successfully
+
+  # ─── Ory Hydra OAuth2 Service ───────────────────────────────────────────────
+  hydra-migrate:
+    image: oryd/hydra:v2.2.0
+    environment:
+      - DSN=postgres://hydra:${POSTGRES_HYDRA_PASSWORD}@postgres-hydra:5432/hydra?sslmode=disable
+    command: migrate sql -e -y
+    depends_on:
+      postgres-hydra:
+        condition: service_healthy
+
+  hydra:
+    image: oryd/hydra:v2.2.0
+    ports:
+      - "${HYDRA_PUBLIC_PORT:-4444}:4444" # public
+      - "${HYDRA_ADMIN_PORT:-4445}:4445" # admin
+    environment:
+      - DSN=postgres://hydra:${POSTGRES_HYDRA_PASSWORD}@postgres-hydra:5432/hydra?sslmode=disable
+      - HYDRA_DATABASE_URL=postgres://hydra:${POSTGRES_HYDRA_PASSWORD}@postgres-hydra:5432/hydra?sslmode=disable
+      # This Hydra version does not expand ${VAR} inside hydra.yaml — these
+      # native env vars are Ory's documented config-override mechanism
+      # (Viper automatic env binding) and take priority over the
+      # (non-functional) YAML placeholders.
+      - SECRETS_SYSTEM=${HYDRA_SECRETS_SYSTEM:-CHANGE_ME_32_BYTES_SYSTEM_SECRET_HERE}
+      - SECRETS_COOKIE=${HYDRA_SECRETS_COOKIE:-CHANGE_ME_32_BYTES_COOKIE_SECRET_HERE}
+      - OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT=${HYDRA_PAIRWISE_SALT:-CHANGE_ME_pairwise_salt_value}
+      - OTEL_ENDPOINT=http://otel-collector:4317
+    volumes:
+      - ../../../ory/hydra:/etc/config/hydra
+      - rendered-config:/etc/config/hydra/config/rendered
+    # --dev: this compose stack terminates no TLS anywhere (see kratos/keto/
+    # oathkeeper's "TLS has not been configured, skipping" startup logs).
+    # Without it, Hydra marks its login/consent CSRF cookie `Secure`, which
+    # browsers (and curl) silently refuse to send back over plain HTTP —
+    # every login attempt then fails with "No CSRF value available in the
+    # session cookie." A TLS-terminated deployment (production K8s) must
+    # drop this flag.
+    command: -c /etc/config/hydra/config/rendered/ory/hydra/config/hydra.yaml serve all --dev
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+      config-render:
+        condition: service_completed_successfully
+
+  # ─── Ory Keto ReBAC Authorization Service ───────────────────────────────────
+  keto-migrate:
+    image: oryd/keto:v0.12.0
+    environment:
+      # KETO_DATABASE_URL matches keto.yaml's (non-functional) ${VAR}
+      # placeholder — DSN is the native override that actually works, same
+      # root cause as kratos/hydra's SECRETS_* vars above.
+      - DSN=postgres://keto:${POSTGRES_KETO_PASSWORD}@postgres-keto:5432/keto?sslmode=disable
+      - KETO_DATABASE_URL=postgres://keto:${POSTGRES_KETO_PASSWORD}@postgres-keto:5432/keto?sslmode=disable
+    volumes:
+      - ../../../ory/keto:/etc/config/keto
+    command: -c /etc/config/keto/config/keto.yaml migrate up -y
+    depends_on:
+      postgres-keto:
+        condition: service_healthy
+
+  keto:
+    image: oryd/keto:v0.12.0
+    ports:
+      - "${KETO_READ_PORT:-4466}:4466" # read
+      - "${KETO_WRITE_PORT:-4467}:4467" # write
+    environment:
+      - DSN=postgres://keto:${POSTGRES_KETO_PASSWORD}@postgres-keto:5432/keto?sslmode=disable
+      - KETO_DATABASE_URL=postgres://keto:${POSTGRES_KETO_PASSWORD}@postgres-keto:5432/keto?sslmode=disable
+      - OTEL_ENDPOINT=http://otel-collector:4317
+    volumes:
+      - ../../../ory/keto:/etc/config/keto
+    command: -c /etc/config/keto/config/keto.yaml serve
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+
+  # ─── Ory Oathkeeper Edge Gateway Proxy ──────────────────────────────────────
+  oathkeeper:
+    image: oryd/oathkeeper:v0.40.6
+    ports:
+      - "${OATHKEEPER_PROXY_PORT:-4455}:4455" # proxy
+      - "${OATHKEEPER_API_PORT:-4456}:4456" # api
+    environment:
+      - OTEL_ENDPOINT=http://otel-collector:4317
+    volumes:
+      - ../../../ory/oathkeeper:/etc/config/oathkeeper
+      - rendered-config:/etc/config/oathkeeper/config/rendered
+    command: -c /etc/config/oathkeeper/config/rendered/ory/oathkeeper/config/oathkeeper.yaml serve
+    depends_on:
+      kratos:
+        condition: service_started
+      hydra:
+        condition: service_started
+      keto:
+        condition: service_started
+      config-render:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata-kratos:
+  pgdata-hydra:
+  pgdata-keto:
+  pgdata-platform:
+  redis-data:
+  rendered-config:

@@ -1,0 +1,32 @@
+{
+  "name": "@aec-craft/debug",
+  "version": "0.0.0",
+  "description": "Local-only example app for @aec-craft/platform-id-client-nextjs. A registered OAuth client of buildOS ID, wired the way any consumer would be, so a change to the adapter can be seen working before it is published.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo .tsbuildinfo coverage",
+    "dev": "next dev --turbopack -p 3202",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "start": "next start -p 3202"
+  },
+  "dependencies": {
+    "@aec-craft/platform-id-client-nextjs": "workspace:*",
+    "@aec-craft/ui": "^0.3.2",
+    "next": "16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "typescript": "catalog:"
+  }
+}

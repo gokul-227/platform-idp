@@ -1,0 +1,83 @@
+# The `kratos-oidc-providers` secret, and the deployed stack's whole second Kratos
+# config: anything environment-specific with no env-var path lands here, hooks
+# included. Terraform seeds it, then sync-secrets.yml renders in the credentials.
+# The array replaces kratos.yml's wholesale, so every provider must be listed.
+selfservice:
+  methods:
+    oidc:
+      config:
+        providers:
+          - id: google
+            provider: google
+            client_id: ${GOOGLE_CLIENT_ID}
+            client_secret: ${GOOGLE_CLIENT_SECRET}
+            # Forced rather than autodiscovered: Kratos probes for PKCE
+            # support only when a provider gives it an issuer to ask, which the
+            # microsoft provider does not, so it silently continued without it.
+            pkce: force
+            mapper_url: file:///etc/config/kratos/oidc.google.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+          - id: microsoft
+            provider: microsoft
+            # `common` admits work, school and personal accounts, matching open
+            # registration. Entra's own registration must be the widest audience:
+            # narrowing here is safe, widening beyond it is not.
+            microsoft_tenant: common
+            client_id: ${MICROSOFT_CLIENT_ID}
+            client_secret: ${MICROSOFT_CLIENT_SECRET}
+            # Forced rather than autodiscovered: Kratos probes for PKCE
+            # support only when a provider gives it an issuer to ask, which the
+            # microsoft provider does not, so it silently continued without it.
+            pkce: force
+            mapper_url: file:///etc/config/kratos/oidc.microsoft.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+
+    # ── Registration gate ─────────────────────────────────────────────────────
+    # Who may sign themselves up (docs/identities.md). Ahead of `session` in both
+    # chains, which run in order and are per method. No auth block, since the gate
+    # reads and writes nothing; `can_interrupt` makes it fail closed.
+  flows:
+    registration:
+      after:
+        code:
+          hooks:
+            - &registration_gate
+              hook: web_hook
+              config:
+                url: ${ID_APP_URL}/api/internal/registration
+                method: POST
+                body: file:///etc/config/kratos/registration.gate.jsonnet
+                can_interrupt: true
+            - hook: session
+        oidc:
+          hooks:
+            - *registration_gate
+            - hook: session
+
+    # ── Sign-in audit ─────────────────────────────────────────────────────────
+    # Kratos owns authentication, so an outbound hook is the only way these events
+    # exist. Non-interrupting, because a broken audit path must not stop a sign-in.
+    # The token is required: a forged audit row reads as a real one.
+    login:
+      after:
+        hooks:
+          - hook: web_hook
+            config:
+              url: ${ID_APP_URL}/api/internal/events
+              method: POST
+              body: file:///etc/config/kratos/audit.jsonnet
+              can_interrupt: false
+              response:
+                ignore: true
+              auth:
+                type: api_key
+                config:
+                  name: X-Audit-Token
+                  value: ${AUDIT_WEBHOOK_SECRET}
+                  in: header

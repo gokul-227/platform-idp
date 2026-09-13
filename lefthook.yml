@@ -1,0 +1,10 @@
+# Installed by the `prepare` script (`lefthook install`). Formats + lints the
+# staged files with Biome (via ultracite) before each commit. Scoped to
+# {staged_files} so it never touches the rest of the tree; uses the pinned
+# local binary via `pnpm exec` (not `pnpm dlx`, which re-downloads).
+pre-commit:
+  jobs:
+    - run: pnpm exec ultracite fix {staged_files}
+      glob:
+        - "**/*.{js,jsx,ts,tsx,json,jsonc,css}"
+      stage_fixed: true

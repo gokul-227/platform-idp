@@ -1,0 +1,65 @@
+{
+  "name": "@aec-craft/platform-id-sdk",
+  "version": "0.2.0",
+  "description": "Typed reader for a buildOS ID session: the current session, its identity traits, whether that identity is staff and at what role, and a Kratos logout URL. A thin layer over @ory/client-fetch, not a re-wrap of it. The identity vocabulary ships dependency-free under ./identity.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aec-craft/platform-id.git",
+    "directory": "packages/sdk"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./identity": {
+      "import": {
+        "types": "./dist/identity.d.ts",
+        "default": "./dist/identity.js"
+      },
+      "require": {
+        "types": "./dist/identity.d.cts",
+        "default": "./dist/identity.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist .tsbuildinfo coverage",
+    "dev": "tsup --watch",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@ory/client-fetch": "^1.22.60"
+  },
+  "devDependencies": {
+    "@aec-craft/platform-id-contracts": "workspace:*",
+    "@ory/client-fetch": "^1.22.66",
+    "@types/node": "catalog:",
+    "tsup": "^8.5.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

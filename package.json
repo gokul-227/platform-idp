@@ -1,0 +1,43 @@
+{
+  "name": "platform-id",
+  "version": "0.0.0",
+  "private": true,
+  "description": "BuildOS ID. Identity provider for the BuildOS platform, served at id.os.build.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "changeset": "changeset",
+    "check": "pnpm -r run check",
+    "clean": "pnpm -r exec rm -rf dist .tsbuildinfo coverage",
+    "db:migrate": "pnpm --filter @aec-craft/platform-id-db run migrate",
+    "dev": "pnpm --filter \"./apps/*\" --parallel run dev",
+    "fix": "ultracite fix",
+    "format": "ultracite fix",
+    "format:check": "ultracite check",
+    "lint": "ultracite check",
+    "lint:fix": "ultracite fix",
+    "ory:down": "docker compose down",
+    "ory:logs": "docker compose logs -f kratos hydra keto",
+    "ory:reset": "docker compose down -v && docker compose up -d --wait",
+    "ory:seed": "pnpm --filter @aec-craft/id run seed:client",
+    "ory:up": "docker compose up -d --wait",
+    "prepare": "lefthook install || true",
+    "release": "pnpm -r --filter \"./packages/*\" build && changeset publish",
+    "test": "pnpm -r --workspace-concurrency=1 run test",
+    "validate": "pnpm check && pnpm lint",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.29.7",
+    "lefthook": "^2.1.9",
+    "typescript": "^6.0.3",
+    "ultracite": "7.8.3"
+  },
+  "engines": {
+    "node": ">=22.10.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.4.1"
+}

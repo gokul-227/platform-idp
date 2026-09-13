@@ -1,0 +1,30 @@
+# Local-dev Keto config; DSN from the environment (compose.yaml). Also published
+# with the namespace file as `@aec-craft/platform-id-permissions`, so a consumer
+# booting Keto for its tests mounts these two rather than keeping a copy.
+
+version: v0.14.0
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+  write:
+    host: 0.0.0.0
+    port: 4467
+  metrics:
+    host: 0.0.0.0
+    port: 4468
+
+# Levels of expansion for one check; each parent traversal spends one, and reach
+# is this minus one (measured at 4, 10, 25, 50). Running out answers denial
+# rather than error, so it surfaces as an empty page.
+limit:
+  max_read_depth: 10
+
+namespaces:
+  location: file:///etc/config/keto/namespaces.keto.ts
+
+log:
+  level: info
+  format: text
+  leak_sensitive_values: false

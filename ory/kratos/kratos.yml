@@ -1,0 +1,238 @@
+# Local-dev Kratos config. All secrets here are dev-only placeholders;
+# deployed environments get their own config with injected secrets.
+# DSN comes from the environment (see compose.yaml).
+
+serve:
+  public:
+    base_url: http://localhost:4433/
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:3200
+      allowed_headers:
+        - Authorization
+        - Cookie
+        - Content-Type
+      allow_credentials: true
+  admin:
+    base_url: http://kratos:4434/
+
+selfservice:
+  default_browser_return_url: http://localhost:3200/account
+  # A missing entry fails late: sign-in succeeds and Kratos refuses only at the
+  # final redirect, as self_service_flow_return_to_forbidden. Deployed
+  # environments replace this list via SELFSERVICE_ALLOWED_RETURN_URLS.
+  allowed_return_urls:
+    - http://localhost:3200
+    - http://localhost:3201
+    - http://localhost:3202
+    - http://localhost:4444
+
+  methods:
+    # Passwordless by design: email OTP (code) + social OIDC. No password
+    # method, so there are no password hashes to manage or leak.
+    password:
+      enabled: false
+    totp:
+      enabled: true
+      config:
+        issuer: buildOS
+    lookup_secret:
+      enabled: true
+    code:
+      enabled: true
+      passwordless_enabled: true
+    oidc:
+      enabled: true
+      config:
+        # Placeholders: the buttons render and the provider refuses the client
+        # until real IDs are injected. `pkce: force` everywhere, because Kratos
+        # probes for support only when given an issuer, which microsoft is not.
+        providers:
+          - id: google
+            provider: google
+            client_id: replace-me.apps.googleusercontent.com
+            client_secret: replace-me
+            pkce: force
+            mapper_url: file:///etc/config/kratos/oidc.google.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+          - id: microsoft
+            provider: microsoft
+            microsoft_tenant: common
+            client_id: replace-me
+            client_secret: replace-me
+            pkce: force
+            mapper_url: file:///etc/config/kratos/oidc.microsoft.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+          # Example enterprise connection consumed by "Continue with SSO".
+          # Domain -> provider routing lives in the app (src/lib/sso.ts);
+          # the login page hides it from the social button row.
+          - id: acme-okta
+            provider: generic
+            issuer_url: https://sso.acme.test
+            client_id: replace-me
+            client_secret: replace-me
+            pkce: force
+            mapper_url: file:///etc/config/kratos/oidc.generic.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+
+  flows:
+    error:
+      ui_url: http://localhost:3200/error
+
+    settings:
+      ui_url: http://localhost:3200/account
+      privileged_session_max_age: 15m
+      required_aal: highest_available
+
+    recovery:
+      enabled: true
+      ui_url: http://localhost:3200/recovery
+      use: code
+
+    verification:
+      enabled: true
+      ui_url: http://localhost:3200/verification
+      use: code
+      after:
+        default_browser_return_url: http://localhost:3200/account
+
+    logout:
+      after:
+        default_browser_return_url: http://localhost:3200/login
+
+    login:
+      ui_url: http://localhost:3200/login
+      # Flow lifespan (CSRF token + pending code challenge). Long enough to
+      # read an email and come back, short enough that an abandoned flow is not
+      # a standing invitation.
+      lifespan: 15m
+      # The profile upsert, on every sign-in, which is what makes the platform's
+      # row self-healing instead of needing a backfill. Not per-method: naming
+      # methods individually would miss whichever is added next. Populated by
+      # kratos.local.yml, so without that overlay the hook is absent.
+      after:
+        hooks: []
+
+    registration:
+      # false closes registration: the flow 404s and identities come from the
+      # admin API instead. Open here, gated by an interrupting web_hook in the
+      # overlay. Not a schema `pattern`, which binds every flow validating traits
+      # and so stopped the console creating anyone.
+      enabled: true
+      lifespan: 30m
+      ui_url: http://localhost:3200/registration
+      after:
+        # The registration OTP already proves the address; no separate
+        # verification pass needed.
+        code:
+          hooks:
+            - hook: session
+        oidc:
+          hooks:
+            - hook: session
+
+# Kratos's own defaults except `required_aal`, stated because an unstated default
+# can move under us on an upgrade.
+session:
+  lifespan: 24h
+  cookie:
+    # Lax, not Strict: the app and Kratos sit on different hosts under one
+    # registrable domain, and Strict drops the cookie on the cross-host
+    # top-level redirect every flow depends on.
+    same_site: Lax
+    persistent: true
+  whoami:
+    # `aal1`, not `highest_available`: a 403 here is indistinguishable from "not
+    # signed in" to every consumer, so one app's second-factor policy would break
+    # sign-in to all the others. An app needing two factors compares the level.
+    required_aal: aal1
+
+log:
+  level: info
+  format: text
+  leak_sensitive_values: false
+
+secrets:
+  cookie:
+    - dev-only-cookie-secret-do-not-deploy
+  cipher:
+    # Cipher secrets must be exactly 32 characters.
+    - dev-only-cipher-secret-32-chars0
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    # Ory's recommended floor. Unexercised while password.enabled is false, so
+    # it costs nothing locally and is already right if passwords are turned on.
+    cost: 12
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.user.schema.json
+    # Operators. Never minted by self-service registration, which can only
+    # create default_schema_id; the admin API is the only way in.
+    - id: staff
+      url: file:///etc/config/kratos/identity.staff.schema.json
+      selfservice_selectable: false
+
+courier:
+  smtp:
+    # Local default: capture into the dev catcher, never send. Deployed
+    # environments set COURIER_SMTP_CONNECTION_URI, whose env value wins over
+    # this file; Kratos does NOT interpolate ${VAR} inside config values.
+    connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+    # Resend's verified sending subdomain, matching the platform monorepo's
+    # EMAIL_FROM. Deployed environments override with
+    # COURIER_SMTP_FROM_ADDRESS.
+    from_address: no-reply@mail.dev.id.os.build
+    from_name: buildOS
+  # Our own emails. Kratos renders these itself; there is no mailer in the
+  # path, so the brand shell lives in these files rather than in a package.
+  templates:
+    login_code:
+      valid:
+        email:
+          subject: file:///etc/config/kratos/courier-templates/login_code/valid/email.subject.gotmpl
+          body:
+            html: file:///etc/config/kratos/courier-templates/login_code/valid/email.body.gotmpl
+            plaintext: file:///etc/config/kratos/courier-templates/login_code/valid/email.body.plaintext.gotmpl
+    registration_code:
+      valid:
+        email:
+          subject: file:///etc/config/kratos/courier-templates/registration_code/valid/email.subject.gotmpl
+          body:
+            html: file:///etc/config/kratos/courier-templates/registration_code/valid/email.body.gotmpl
+            plaintext: file:///etc/config/kratos/courier-templates/registration_code/valid/email.body.plaintext.gotmpl
+    verification_code:
+      valid:
+        email:
+          subject: file:///etc/config/kratos/courier-templates/verification_code/valid/email.subject.gotmpl
+          body:
+            html: file:///etc/config/kratos/courier-templates/verification_code/valid/email.body.gotmpl
+            plaintext: file:///etc/config/kratos/courier-templates/verification_code/valid/email.body.plaintext.gotmpl
+    recovery_code:
+      valid:
+        email:
+          subject: file:///etc/config/kratos/courier-templates/recovery_code/valid/email.subject.gotmpl
+          body:
+            html: file:///etc/config/kratos/courier-templates/recovery_code/valid/email.body.gotmpl
+            plaintext: file:///etc/config/kratos/courier-templates/recovery_code/valid/email.body.plaintext.gotmpl
+
+# Kratos acts as the login provider for Hydra (OAuth2/OIDC handoff).
+oauth2_provider:
+  url: http://hydra:4445

@@ -1,0 +1,4 @@
+# Real OIDC credentials for local development. The build context is this
+# directory, so without this the file is baked into any image built from a
+# working copy that has it.
+kratos.local.yml

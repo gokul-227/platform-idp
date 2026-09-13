@@ -1,0 +1,58 @@
+{
+  "name": "@aec-craft/platform-id-client-nextjs",
+  "version": "0.6.0",
+  "description": "Next.js OAuth client for buildOS ID. Authorization code with PKCE against Hydra, wrapped as drop-in route handlers plus a proxy gate, so an app is registered in the console rather than in a config file.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aec-craft/platform-id.git",
+    "directory": "packages/client-nextjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist .tsbuildinfo coverage",
+    "dev": "tsup --watch",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "openid-client": "^6.8.4"
+  },
+  "peerDependencies": {
+    "next": "^15.0.0 || ^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "jose": "^6.1.0",
+    "next": "16.1.6",
+    "tsup": "^8.5.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

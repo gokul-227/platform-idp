@@ -1,0 +1,76 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": [
+    "ultracite/biome/core",
+    "ultracite/biome/react",
+    "ultracite/biome/next",
+    "ultracite/biome/vitest"
+  ],
+  "linter": {
+    "rules": {
+      // Same deliberate scope-offs as aec-craft/platform (documented there):
+      // fire-and-forget `void promise`, framework-conformant async-without-await,
+      // idiomatic React loading/error/data JSX ternaries.
+      "complexity": { "noVoid": "off" },
+      "suspicious": { "useAwait": "off" },
+      "style": { "noNestedTernary": "off" }
+    }
+  },
+  "overrides": [
+    {
+      // Tests legitimately use `!` and `any` on fixtures and stub empty handlers.
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/tests/**"],
+      "linter": {
+        "rules": {
+          "complexity": { "useLiteralKeys": "off" },
+          "style": { "noNonNullAssertion": "off" },
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noEmptyBlockStatements": "off"
+          },
+          "performance": { "useTopLevelRegex": "off" }
+        }
+      }
+    },
+    {
+      // Re-export required by PostCSS: the config must be a module's default,
+      // and the shared one lives in @aec-craft/ui.
+      "includes": ["apps/*/postcss.config.mjs"],
+      "linter": { "rules": { "performance": { "noBarrelFile": "off" } } }
+    },
+    {
+      // Ory Permission Language: TypeScript-shaped config that Keto parses and
+      // executes itself, never imported by app code. Its parser rejects the
+      // formatting Biome would apply (multi-line unions, leading pipes), and
+      // the namespace classes are "unused" by design.
+      "includes": ["ory/keto/*.keto.ts"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    },
+    {
+      // The Kratos flow renderer emits TOTP QR codes as data: URIs;
+      // next/image cannot optimize those, so plain <img> is correct.
+      "includes": ["apps/id/src/components/flow.form.tsx"],
+      "linter": { "rules": { "performance": { "noImgElement": "off" } } }
+    },
+    {
+      // NestJS DI is built on parameter decorators and constructor parameter
+      // properties, and a module is a class whose members are all static. None
+      // of that is a style choice a consumer can opt out of: it is how the
+      // framework discovers providers. Biome's parser also needs telling that
+      // parameter decorators exist at all, which is the `javascript.parser`
+      // entry rather than a rule.
+      //
+      // Scoped to this one package so the rules keep applying everywhere else.
+      "includes": ["packages/resource-nestjs/src/**"],
+      "javascript": { "parser": { "unsafeParameterDecoratorsEnabled": true } },
+      "linter": {
+        "rules": {
+          "complexity": { "noStaticOnlyClass": "off" },
+          "performance": { "noBarrelFile": "off" },
+          "style": { "noParameterProperties": "off" }
+        }
+      }
+    }
+  ]
+}

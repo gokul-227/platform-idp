@@ -1,0 +1,96 @@
+# Template for kratos.local.yml (gitignored), loaded after kratos.yml, whose
+# providers array this replaces wholesale. Register the callback with each
+# upstream provider: /self-service/methods/oidc/callback/<id>
+selfservice:
+  methods:
+    oidc:
+      config:
+        providers:
+          - id: google
+            provider: google
+            client_id: ""
+            client_secret: ""
+            mapper_url: file:///etc/config/kratos/oidc.google.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+          - id: microsoft
+            provider: microsoft
+            microsoft_tenant: common
+            client_id: ""
+            client_secret: ""
+            mapper_url: file:///etc/config/kratos/oidc.microsoft.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+          - id: acme-okta
+            provider: generic
+            issuer_url: https://sso.acme.test
+            client_id: replace-me
+            client_secret: replace-me
+            mapper_url: file:///etc/config/kratos/oidc.generic.jsonnet
+            scope:
+              - openid
+              - email
+              - profile
+
+# ── Registration gate ─────────────────────────────────────────────────────────
+# Who may sign themselves up (REGISTRATION_ALLOWED_DOMAINS on the sign-in app).
+# A hook, not a schema `pattern`: Kratos validates traits on every flow carrying
+# them, so a pattern also stops an operator creating somebody in the console.
+# It must sit before `session` in the chain, which runs in order, and each method
+# has its own chain. `can_interrupt: true` makes an unreachable app a refusal.
+#
+#   selfservice:
+#     flows:
+#       registration:
+#         after:
+#           code:
+#             hooks:
+#               - hook: web_hook
+#                 config:
+#                   url: http://host.docker.internal:3200/api/internal/registration
+#                   method: POST
+#                   body: file:///etc/config/kratos/registration.gate.jsonnet
+#                   can_interrupt: true
+#               - hook: session
+#           oidc:
+#             hooks:
+#               - hook: web_hook
+#                 config:
+#                   url: http://host.docker.internal:3200/api/internal/registration
+#                   method: POST
+#                   body: file:///etc/config/kratos/registration.gate.jsonnet
+#                   can_interrupt: true
+#               - hook: session
+
+# ── Audit hooks (optional) ────────────────────────────────────────────────────
+# Records sign-ins. Out of kratos.yml because the URL and secret are
+# environment-specific. The body renders the intake contract from
+# @aec-craft/platform-id-contracts, which the receiver validates. Unset
+# AUDIT_WEBHOOK_SECRET means the receiver 404s and records nothing.
+#
+#   selfservice:
+#     flows:
+#       login:
+#         after:
+#           hooks:
+#             - hook: web_hook
+#               config:
+#                 url: http://host.docker.internal:3200/api/internal/events
+#                 method: POST
+#                 body: file:///etc/config/kratos/audit.jsonnet
+#                 can_interrupt: false
+#                 response:
+#                   ignore: true
+#                 auth:
+#                   type: api_key
+#                   config:
+#                     name: X-Audit-Token
+#                     value: "<same as AUDIT_WEBHOOK_SECRET>"
+#                     in: header
+#
+# `can_interrupt: false` and `response.ignore: true` together mean a failing
+# audit path cannot stop a sign-in.

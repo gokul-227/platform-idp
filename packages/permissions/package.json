@@ -1,0 +1,28 @@
+{
+  "name": "@aec-craft/platform-id-permissions",
+  "version": "0.2.0",
+  "description": "The Ory Permission Language model buildOS ID deploys, and the Keto config that serves it. Published so a consumer can boot the same Keto its production checks run against instead of keeping a copy.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aec-craft/platform-id.git",
+    "directory": "packages/permissions"
+  },
+  "exports": {
+    "./keto.yml": "./dist/keto.yml",
+    "./namespaces.keto.ts": "./dist/namespaces.keto.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "mkdir -p dist && cp ../../ory/keto/keto.yml ../../ory/keto/namespaces.keto.ts dist/",
+    "clean": "rm -rf dist"
+  }
+}

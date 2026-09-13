@@ -1,0 +1,43 @@
+{
+  "name": "@aec-craft/console",
+  "version": "0.1.0",
+  "description": "BuildOS ID operator console. Kratos and Hydra admin surfaces, served at console.id.os.build.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo .tsbuildinfo coverage",
+    "dev": "next dev --turbopack -p 3201",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "start": "next start -p 3201",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aec-craft/platform-admin-sdk": "^0.2.0",
+    "@aec-craft/platform-id-client-nextjs": "workspace:*",
+    "@aec-craft/platform-id-contracts": "workspace:*",
+    "@aec-craft/platform-id-db": "workspace:*",
+    "@aec-craft/platform-id-sdk": "workspace:*",
+    "@aec-craft/platform-sdk": "^0.5.2",
+    "@aec-craft/ui": "^0.3.2",
+    "@ory/client-fetch": "^1.22.60",
+    "@tanstack/react-query": "^5.0.0",
+    "next": "16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "recharts": "3.8.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

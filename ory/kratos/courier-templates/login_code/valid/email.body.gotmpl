@@ -1,0 +1,79 @@
+{{/* buildOS courier template. Kratos parses each file on its own, so the
+     brand shell is repeated per template rather than included: there is no
+     partial mechanism here and adding a render step to share one would put
+     back the config pipeline this repo deliberately does not have.
+     Inline styles and table layout only, per email-client reality. */}}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>buildOS</title>
+  </head>
+  <body style="margin:0; padding:0; background:#ffffff; -webkit-font-smoothing:antialiased;">
+    <span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden; mso-hide:all;">Code {{ .LoginCode }}, valid for {{ .ExpiresInMinutes }} minutes.</span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+      <tr><td align="center" style="padding:48px 16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:480px;">
+          <tr><td style="padding:0 4px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="vertical-align:middle; padding-right:10px;"><svg width="26" height="29" viewBox="0 0 120 132" fill="none" stroke="#1f1f1f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle;"><path d="M 60 18 L 102 42 L 102 90 L 60 114 L 18 90 L 18 42 Z"/><path d="M 60 18 L 60 114"/><path d="M 18 42 L 60 66"/><path d="M 102 42 L 60 66"/><circle cx="60" cy="66" r="6" fill="#c47a3a" stroke="none"/></svg></td>
+              <td style="vertical-align:middle; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-weight:600; font-size:22px; letter-spacing:-0.02em; color:#1f1f1f; line-height:1;">buildOS</td>
+            </tr></table>
+          </td></tr>
+          <tr><td style="padding:0 4px;">
+            <h1 style="margin:0 0 12px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:18px; font-weight:600; letter-spacing:-0.01em; color:#1f1f1f;">Sign in to buildOS</h1>
+            <p style="margin:0 0 24px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; color:#404040;">Enter this code to finish signing in.</p>
+            {{- /* The code and the button share one table, so the button is
+                 exactly as wide as the code box without either being given a
+                 width: the table shrinks to its widest row, which is the code.
+                 26px is the design system's card corner, --radius 0.625rem
+                 times 2.6; the digits are centred because the row is no longer
+                 sized by them alone. */ -}}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+              <tr>
+                <td align="center" style="padding:16px 24px; background:#fafafa; border:1px solid #e5e5e5; border-radius:26px; font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-size:28px; font-weight:600; letter-spacing:0.22em; color:#1f1f1f;">{{ .LoginCode }}</td>
+              </tr>
+            {{- /* One-click sign-in. Styled to the design system's default
+                 Button, whose values cannot be read from here: rounded-4xl is
+                 --radius 0.625rem times 2.6, and the fill and text are
+                 --primary and --primary-foreground, which are oklch in the
+                 stylesheet and hex here because mail clients do not parse it.
+                 A token that moves wants moving here too.
+
+                 The login form submits its own flow URL as
+                 transient_payload.flow_url, which is client-controlled input:
+                 without the allowlist below, anyone who can trigger a code for
+                 an address could make this mail link the code to a host they
+                 run. Only `/login?flow=<uuid-shaped>` URLs on our sign-in
+                 origins render; the code travels in the URL fragment so it
+                 reaches the browser but never a server log, and a link scanner
+                 that executes JS still cannot spend it, because without the
+                 flow's CSRF cookie the code step never renders. Missing or
+                 rejected payload just means no button (API clients, forged
+                 hosts), never a broken mail. The origins mirror `id_host` in
+                 infra/environments/<env>/locals.tf; a new environment needs this
+                 list too — here and in the plaintext copy, which must agree. */ -}}
+            {{- $flowUrl := "" }}{{ with .TransientPayload }}{{ with index . "flow_url" }}{{ $flowUrl = printf "%v" . }}{{ end }}{{ end }}
+            {{- $mayLink := regexMatch `^(https://(dev\.|test\.)?id\.os\.build|http://localhost:3200)/login\?flow=[a-f0-9-]{36}$` $flowUrl }}
+            {{- if $mayLink }}
+              <tr><td style="height:12px; line-height:12px; font-size:0;">&nbsp;</td></tr>
+              <tr>
+                <td align="center" style="background:#171717; border-radius:26px;"><a href="{{ $flowUrl }}#code={{ .LoginCode }}" style="display:block; padding:12px 20px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; line-height:16px; font-weight:500; color:#fafafa; text-decoration:none;">Sign in with one click</a></td>
+              </tr>
+            {{- end }}
+            </table>
+            {{- if $mayLink }}
+            <p style="margin:0 0 24px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:1.6; color:#737373;">The button works in the browser you started signing in from; elsewhere, enter the code instead.</p>
+            {{- end }}
+            <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:1.6; color:#737373;">Expires in {{ .ExpiresInMinutes }} minutes. If you did not try to sign in, you can ignore this email.</p>
+          </td></tr>
+          <tr><td style="padding:28px 4px 0;">
+            <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:1.6; color:#737373;"><a href="https://os.build" style="color:#737373; text-decoration:underline;">os.build</a></p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>

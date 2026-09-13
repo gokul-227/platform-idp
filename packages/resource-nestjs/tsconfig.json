@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Nest's DI reads parameter decorators at runtime, which needs the legacy
+    // decorator transform and the metadata it emits. Not a preference: the
+    // standard decorators proposal has no parameter form, so `@Inject()` on a
+    // constructor argument does not exist without these two.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "moduleDetection": "force"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

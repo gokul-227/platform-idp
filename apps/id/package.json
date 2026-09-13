@@ -1,0 +1,43 @@
+{
+  "name": "@aec-craft/id",
+  "version": "0.1.0",
+  "description": "BuildOS ID surface: Kratos self-service flows, the Hydra consent screen, and the operator console.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo .tsbuildinfo coverage",
+    "dev": "next dev --turbopack -p 3200",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "seed:client": "tsx scripts/seed-oauth-client.ts",
+    "start": "next start -p 3200",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aec-craft/platform-id-client-nextjs": "workspace:*",
+    "@aec-craft/platform-id-contracts": "workspace:*",
+    "@aec-craft/platform-id-db": "workspace:*",
+    "@aec-craft/platform-id-sdk": "workspace:*",
+    "@aec-craft/platform-sdk": "^0.5.2",
+    "@aec-craft/ui": "^0.3.2",
+    "@ory/client-fetch": "^1.22.60",
+    "@tanstack/react-query": "^5.0.0",
+    "next": "16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "tsx": "^4.21.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

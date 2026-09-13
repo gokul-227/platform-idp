@@ -1,0 +1,19 @@
+buildOS
+
+Sign in to buildOS
+
+Enter this code to finish signing in.
+
+    {{ .LoginCode }}
+{{- /* Same allowlist as the HTML body; see the comment there. */ -}}
+{{- $flowUrl := "" }}{{ with .TransientPayload }}{{ with index . "flow_url" }}{{ $flowUrl = printf "%v" . }}{{ end }}{{ end }}
+{{- if regexMatch `^(https://(dev\.|test\.)?id\.os\.build|http://localhost:3200)/login\?flow=[a-f0-9-]{36}$` $flowUrl }}
+
+Or sign in with one click (works in the browser you started signing in from):
+
+    {{ $flowUrl }}#code={{ .LoginCode }}
+{{- end }}
+
+Expires in {{ .ExpiresInMinutes }} minutes. If you did not try to sign in, you can ignore this email.
+
+os.build

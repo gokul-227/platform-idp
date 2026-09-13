@@ -1,0 +1,85 @@
+# Local-dev Hydra config. All secrets here are dev-only placeholders;
+# deployed environments get their own config with injected secrets.
+# DSN comes from the environment (see compose.yaml).
+
+serve:
+  public:
+    # A browser client redeems its code here directly, and without CORS the
+    # request never leaves the page: the only symptom is "Failed to fetch".
+    # Deployed environments replace the list via SERVE_PUBLIC_CORS_ALLOWED_ORIGINS.
+    cors:
+      enabled: true
+      allowed_origins:
+        # Only origins that redeem a code *in the browser* belong here. The
+        # example app does not: it is a confidential client whose callback runs
+        # server side, so its token request never comes from a page.
+        - http://localhost:3100
+      allowed_methods:
+        - GET
+        - POST
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+  cookies:
+    same_site_mode: Lax
+
+urls:
+  self:
+    issuer: http://localhost:4444
+    public: http://localhost:4444
+  login: http://localhost:3200/login
+  consent: http://localhost:3200/consent
+  logout: http://localhost:3200/logout
+  post_logout_redirect: http://localhost:3200/login
+  identity_provider:
+    publicUrl: http://localhost:4433
+    url: http://kratos:4434
+
+secrets:
+  system:
+    - dev-only-hydra-system-secret
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - public
+  # Anonymous in Hydra with no policy hook, so an open issuer lets anyone mint a
+  # client whose chosen client_name renders on our consent screen under our
+  # branding. Clients come from an authenticated surface calling Hydra admin.
+  dynamic_client_registration:
+    enabled: false
+
+oauth2:
+  # Public clients cannot keep a secret, so PKCE is their only binding.
+  pkce:
+    enforced_for_public_clients: true
+  # How long a rotated refresh token stays usable. Without it, two runtimes of a
+  # Next app presenting the same token in one second reads as a breach and
+  # revokes the chain. Short on purpose: it is also the window in which a stolen
+  # token is indistinguishable from a legitimate retry.
+  grant:
+    refresh_token:
+      # `rotation_grace_reuse_count` stays 0, which is unlimited reuse inside
+      # the window rather than none.
+      rotation_grace_period: 30s
+
+# webfinger.oidc_discovery.client_registration_url is deliberately unset: the
+# field is independent of the flag above, so setting it advertises a
+# registration_endpoint that answers 404.
+
+# JWT access tokens so a resource server can check one against the published
+# JWKS instead of introspecting. Introspection is a Hydra admin call, and admin
+# is not reachable from outside this project. See docs/architecture.md.
+strategies:
+  access_token: jwt
+
+ttl:
+  # Verification is local, so a revoked access token works until it expires and
+  # 10m bounds that window. Refresh is still checked at Hydra, so revocation
+  # takes effect within one access-token lifetime.
+  access_token: 10m
+
+log:
+  level: info
+  format: text

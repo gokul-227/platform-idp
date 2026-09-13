@@ -1,0 +1,150 @@
+# Local Ory stack: Postgres + Kratos + Hydra + a dev mail catcher. Config
+# lives in ory/; the Next app in apps/id runs on the host against it.
+#
+# Bring it up:        pnpm ory:up
+# Tear down (keep):   pnpm ory:down
+# Tear down + wipe:   pnpm ory:reset
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: id_app_role
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: kratos
+    ports:
+      # Host 5434: 5432 is reserved for cloud-sql-proxy, 5433 for the
+      # platform monorepo's shared postgres container.
+      # Dev credentials; loopback only, nothing outside this machine needs it.
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - id-postgres-data:/var/lib/postgresql/data
+      - ./ory/postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U id_app_role -d kratos"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  kratos-migrate:
+    image: oryd/kratos:v26.2.0
+    command: migrate sql -e --yes
+    environment:
+      DSN: postgres://id_app_role:dev@postgres:5432/kratos?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kratos:
+    image: oryd/kratos:v26.2.0
+    # kratos.local.yml (gitignored) overlays real OIDC credentials; create it
+    # from kratos.local.example.yml before first boot.
+    command: serve --config /etc/config/kratos/kratos.yml --config /etc/config/kratos/kratos.local.yml --dev --watch-courier
+    environment:
+      - DSN=postgres://id_app_role:dev@postgres:5432/kratos?sslmode=disable
+      # Bare name: forwarded only when set, because an empty value would
+      # override kratos.yml and fail schema validation ("^smtps?://.*").
+      # Set it in .env to send through a real provider instead of the catcher.
+      - COURIER_SMTP_CONNECTION_URI
+    ports:
+      - "4433:4433"
+      # Admin API is unauthenticated by design; Ory's only protection is
+      # network reach. Bound to loopback so it is not on the LAN.
+      - "127.0.0.1:4434:4434"
+    volumes:
+      - ./ory/kratos:/etc/config/kratos:ro
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The first operator, which the console cannot create because reaching it already
+  # requires a staff identity. Same script the Cloud Run job runs, and idempotent.
+  # The wait is here rather than in the script: nothing locally holds the job back
+  # until Kratos answers, and the Ory image has no shell for a healthcheck.
+  bootstrap:
+    build: ./ory/bootstrap
+    entrypoint:
+      - sh
+      - -c
+      - 'until curl -sf "$$KRATOS_ADMIN_URL/admin/health/ready" >/dev/null; do sleep 1; done; exec bootstrap-staff'
+    environment:
+      KRATOS_ADMIN_URL: http://kratos:4434
+      STAFF_EMAIL: ${STAFF_EMAIL:-marius@neobim.ai}
+    depends_on:
+      kratos:
+        condition: service_started
+
+  hydra-migrate:
+    image: oryd/hydra:v26.2.0
+    command: migrate sql -e --yes
+    environment:
+      DSN: postgres://id_app_role:dev@postgres:5432/hydra?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  hydra:
+    image: oryd/hydra:v26.2.0
+    command: serve all --config /etc/config/hydra/hydra.yml --dev
+    environment:
+      DSN: postgres://id_app_role:dev@postgres:5432/hydra?sslmode=disable
+      # Asked on every refresh so the claims a resource server gates on are
+      # re-derived rather than replayed. By environment rather than in
+      # `hydra.yml`, because the URL differs per deployment and the value is a
+      # shared secret. Unset here would leave refresh replaying consent.
+      OAUTH2_REFRESH_TOKEN_HOOK_URL: http://host.docker.internal:3200/api/internal/refresh
+      OAUTH2_REFRESH_TOKEN_HOOK_AUTH_TYPE: api_key
+      OAUTH2_REFRESH_TOKEN_HOOK_AUTH_CONFIG_IN: header
+      OAUTH2_REFRESH_TOKEN_HOOK_AUTH_CONFIG_NAME: X-Refresh-Hook-Token
+      OAUTH2_REFRESH_TOKEN_HOOK_AUTH_CONFIG_VALUE: ${REFRESH_HOOK_SECRET:-dev-only-refresh-hook-secret}
+    ports:
+      - "4444:4444"
+      # Admin API is unauthenticated by design; see the note on Kratos above.
+      - "127.0.0.1:4445:4445"
+      # Callback port for the `hydra perform authorization-code` demo loop.
+      - "127.0.0.1:5555:5555"
+    volumes:
+      - ./ory/hydra:/etc/config/hydra:ro
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  keto-migrate:
+    image: oryd/keto:v26.2.0
+    command: migrate up -y --config /etc/config/keto/keto.yml
+    environment:
+      - DSN=postgres://id_app_role:dev@postgres:5432/keto?sslmode=disable
+    volumes:
+      - ./ory/keto:/etc/config/keto:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  keto:
+    image: oryd/keto:v26.2.0
+    command: serve --config /etc/config/keto/keto.yml
+    environment:
+      - DSN=postgres://id_app_role:dev@postgres:5432/keto?sslmode=disable
+    ports:
+      # Read (checks) and write (tuple management). The write port is as
+      # privileged as an admin API; loopback only.
+      - "127.0.0.1:4466:4466"
+      - "127.0.0.1:4467:4467"
+    volumes:
+      - ./ory/keto:/etc/config/keto:ro
+    depends_on:
+      keto-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    ports:
+      # Web UI on 4436, API on 4437; the Kratos courier delivers to smtp 1025
+      # inside the compose network.
+      - "4436:4436"
+      - "4437:4437"
+
+volumes:
+  id-postgres-data:

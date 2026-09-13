@@ -1,0 +1,89 @@
+{
+  "name": "@aec-craft/platform-id-db",
+  "version": "0.1.0",
+  "description": "The application database: the audit_log table this repo owns, its drizzle migrations and its read/write layer. Ory owns its own three schemas; this holds only what Ory has no place for.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/client.js",
+  "types": "./dist/client.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/client.d.ts",
+        "default": "./dist/client.js"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./audit": {
+      "import": {
+        "types": "./dist/audit.d.ts",
+        "default": "./dist/audit.js"
+      },
+      "require": {
+        "types": "./dist/audit.d.cts",
+        "default": "./dist/audit.cjs"
+      }
+    },
+    "./migrate": {
+      "import": {
+        "types": "./dist/migrate.d.ts",
+        "default": "./dist/migrate.js"
+      },
+      "require": {
+        "types": "./dist/migrate.d.cts",
+        "default": "./dist/migrate.cjs"
+      }
+    },
+    "./schema": {
+      "import": {
+        "types": "./dist/audit.table.d.ts",
+        "default": "./dist/audit.table.js"
+      },
+      "require": {
+        "types": "./dist/audit.table.d.cts",
+        "default": "./dist/audit.table.cjs"
+      }
+    },
+    "./migrate.cli": {
+      "import": {
+        "types": "./dist/migrate.cli.d.ts",
+        "default": "./dist/migrate.cli.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist .tsbuildinfo coverage",
+    "db:generate": "drizzle-kit generate",
+    "dev": "tsup --watch",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "migrate": "tsx src/migrate.cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aec-craft/platform-id-contracts": "workspace:*",
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.31.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

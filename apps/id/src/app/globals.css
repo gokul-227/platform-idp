@@ -1,0 +1,3 @@
+/* Tailwind v4 auto-detects this app's files and @aec-craft/ui/globals.css declares
+   its own sources, so this single import covers the theme, fonts, and class scanning. */
+@import "@aec-craft/ui/globals.css";

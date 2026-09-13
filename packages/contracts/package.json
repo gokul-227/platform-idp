@@ -1,0 +1,35 @@
+{
+  "name": "@aec-craft/platform-id-contracts",
+  "version": "0.1.0",
+  "description": "Shared buildOS ID vocabulary: identity shapes, the staff role catalog, guard denial reasons, console refusal specs and the audit action vocabulary. Internal and never published; its consumers bundle the source.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./audit/audit.filters": "./audit/audit.filters.ts",
+    "./audit/audit.intake": "./audit/audit.intake.ts",
+    "./audit/audit.labels": "./audit/audit.labels.ts",
+    "./audit/audit.vocabulary": "./audit/audit.vocabulary.ts",
+    "./common/format": "./common/format.ts",
+    "./common/platform-error": "./common/platform-error.ts",
+    "./console/refusal.errors": "./console/refusal.errors.ts",
+    "./guard/guard.denials": "./guard/guard.denials.ts",
+    "./identity/email": "./identity/email.ts",
+    "./identity/identity.schema": "./identity/identity.schema.ts",
+    "./identity/identity.traits": "./identity/identity.traits.ts",
+    "./identity/registration.domains": "./identity/registration.domains.ts",
+    "./identity/staff.roles": "./identity/staff.roles.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

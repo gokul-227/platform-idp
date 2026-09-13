@@ -1,0 +1,61 @@
+{
+  "name": "@aec-craft/platform-id-resource-nestjs",
+  "version": "0.4.0",
+  "description": "NestJS guard for buildOS ID. Verifies the issuer's JWT against its published keys and attaches the caller, with no call to the identity service on any request.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aec-craft/platform-id.git",
+    "directory": "packages/resource-nestjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist .tsbuildinfo coverage",
+    "dev": "tsup --watch",
+    "format": "ultracite fix",
+    "lint": "ultracite check",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0 || ^11.0.0",
+    "@nestjs/core": "^10.0.0 || ^11.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/testing": "^11.1.6",
+    "@types/node": "catalog:",
+    "reflect-metadata": "^0.2.2",
+    "tsup": "^8.5.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,5 +1,0 @@
-id: team-manager-role
-name: Team Manager
-namespace: Team
-relation: manager
-description: Manages a specific department team (see the object column for which team).

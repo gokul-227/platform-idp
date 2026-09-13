@@ -1,5 +1,0 @@
-id: resource-viewer
-name: Resource Viewer
-namespace: Resource
-relation: viewer
-description: Read access to a resource.

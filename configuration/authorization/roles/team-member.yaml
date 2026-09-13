@@ -1,5 +1,0 @@
-id: team-member
-name: Team Member
-namespace: Team
-relation: member
-description: Member of a team.

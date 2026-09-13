@@ -1,7 +1,0 @@
-{
-  "name": "smtp",
-  "version": "1.0.0",
-  "type": "email",
-  "description": "SMTP email provider (the pre-port implementation's only provider)",
-  "entry": "provider:SmtpEmailProvider"
-}

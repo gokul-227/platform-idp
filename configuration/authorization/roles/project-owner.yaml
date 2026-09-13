@@ -1,5 +1,0 @@
-id: project-owner
-name: Project Owner
-namespace: Project
-relation: owner
-description: Full control over a project.

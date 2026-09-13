@@ -1,7 +1,0 @@
-id: standard-registration
-name: Standard Registration
-type: registration
-enabled: true
-steps:
-  - password
-  - oidc

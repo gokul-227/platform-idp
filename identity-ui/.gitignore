@@ -1,7 +1,0 @@
-node_modules
-.next
-next-env.d.ts
-*.tsbuildinfo
-# Synced from ui/packages/ui/styles/globals.css by `npm run sync:ui-css`
-# (predev/prebuild) — never hand-edited, see app/globals.css's comment.
-app/vendor-globals.css

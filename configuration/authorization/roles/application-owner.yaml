@@ -1,5 +1,0 @@
-id: application-owner
-name: Application Owner
-namespace: Application
-relation: owner
-description: Manage an application/OAuth2 client.

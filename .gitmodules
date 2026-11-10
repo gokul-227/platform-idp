@@ -1,3 +1,0 @@
-[submodule "vendor/kratos-selfservice-ui-reference"]
-	path = vendor/kratos-selfservice-ui-reference
-	url = https://github.com/ory/kratos-selfservice-ui-node.git
